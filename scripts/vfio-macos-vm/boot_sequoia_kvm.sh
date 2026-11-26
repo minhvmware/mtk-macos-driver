@@ -58,7 +58,7 @@ QEMU_ARGS=(
     -cpu "Skylake-Client,-hle,-rtm,kvm=on,vendor=GenuineIntel,+invtsc,vmware-cpuid-freq=on,${MY_CPU_OPTS}"
     -machine q35
     -smp "${SMP_CORES},cores=${SMP_CORES},sockets=1"
-    -device qemu-xhci,id=xhci
+    -device qemu-xhci,id=xhci,p2=8,p3=8
     -device usb-kbd,bus=xhci.0
     -device usb-tablet,bus=xhci.0
     -device usb-ehci,id=ehci
@@ -74,6 +74,7 @@ QEMU_ARGS=(
     -device ide-hd,bus=sata.4,drive=MacHDD
     -device vmware-svga
     -serial "file:${VM_DIR}/serial.log"
+    -qmp "unix:${VM_DIR}/qmp.sock,server,nowait"
     # Expose dist/ as a read-only USB FAT drive inside macOS Finder for easy kext access
     -drive id=KextShare,if=none,format=raw,read-only=on,file="fat:ro:${REPO_ROOT}/dist"
     -device usb-storage,bus=xhci.0,drive=KextShare,removable=on
@@ -106,26 +107,65 @@ if [ "${MODE}" = "--passthrough" ]; then
     if [ "${CUR_DRV}" != "vfio-pci" ]; then
         "${REPO_ROOT}/scripts/vfio-macos-vm/bind_vfio_mt7902.sh"
         RESTORE_WIFI_ON_EXIT=1
+    else
+        # Ensure PCI power state is active (D0) even if already bound earlier
+        [ -f "/sys/bus/pci/devices/${PCI_BDF}/power/control" ] && echo "on" > "/sys/bus/pci/devices/${PCI_BDF}/power/control" || true
+        RESTORE_WIFI_ON_EXIT=1
     fi
 
-    echo "[*] Attaching MT7902 PCIe Wi-Fi (${PCI_SHORT}) via VFIO-PCI..."
+    REAL_USER="${SUDO_USER:-quangminh}"
+    REAL_UID=$(id -u "${REAL_USER}")
+    IOMMU_GRP=$(basename "$(readlink -f "/sys/bus/pci/devices/${PCI_BDF}/iommu_group")")
+    chown "${REAL_USER}:${REAL_USER}" "/dev/vfio/${IOMMU_GRP}"
+    chmod 0666 /dev/vfio/vfio 2>/dev/null || true
+
+    echo "[*] Attaching MT7902 PCIe Wi-Fi (${PCI_SHORT}) directly on pcie.0 (Root Complex Endpoint)..."
     QEMU_ARGS+=(
-        -device pcie-root-port,id=pcie_mt7902,slot=4,chassis=4
-        -device "vfio-pci,host=${PCI_SHORT},bus=pcie_mt7902"
+        -device "vfio-pci,host=${PCI_SHORT},bus=pcie.0,addr=0x08"
     )
 
-    if lsusb -d "${BT_VID#0x}:${BT_PID#0x}" >/dev/null 2>&1; then
-        echo "[*] Attaching MT7902 USB Bluetooth (${BT_VID}:${BT_PID})..."
+    BT_USB_LINE=$(lsusb -d "${BT_VID#0x}:${BT_PID#0x}" 2>/dev/null | head -n 1 || true)
+    if [ -n "${BT_USB_LINE}" ]; then
+        BT_BUS=$(echo "${BT_USB_LINE}" | awk '{print $2}')
+        BT_DEV=$(echo "${BT_USB_LINE}" | awk '{gsub(":", "", $4); print $4}')
+        if [ -e "/dev/bus/usb/${BT_BUS}/${BT_DEV}" ]; then
+            chown "${REAL_USER}:${REAL_USER}" "/dev/bus/usb/${BT_BUS}/${BT_DEV}"
+        fi
+        echo "[*] Attaching MT7902 USB Bluetooth (${BT_VID}:${BT_PID} at /dev/bus/usb/${BT_BUS}/${BT_DEV})..."
         QEMU_ARGS+=(-device "usb-host,bus=xhci.0,vendorid=${BT_VID},productid=${BT_PID}")
     fi
 
-    # Keep user-mode secondary NIC on port 50922 for SSH access into macOS guest
+    # Secondary NAT NIC (uses iPhone tethering on host) for SSH & downloading macOS installer
     QEMU_ARGS+=(
         -netdev user,id=net0,hostfwd=tcp::50922-:22
         -device virtio-net-pci,netdev=net0,id=vnet0,mac=52:54:00:c9:18:27
     )
+
+    touch "${VM_DIR}/serial.log"
+    chown "${REAL_USER}:${REAL_USER}" "${VM_DIR}/serial.log" "${OVMF_VARS}" "${HDD_IMG}" "${OC_IMG}" 2>/dev/null || true
+    rm -f "${VM_DIR}/qmp.sock"
+
+    # Raise locked-memory limit for 8 GiB VFIO DMA pinning, then drop to desktop user without PAM resetting ulimit!
+    ulimit -l unlimited
+    REAL_GID=$(id -g "${REAL_USER}")
+    WAYLAND_SOCK=$(ls "/run/user/${REAL_UID}/"wayland-* 2>/dev/null | grep -v '\.lock$' | head -n 1 || true)
+    WAYLAND_NAME="${WAYLAND_SOCK##*/}"
+    [ -n "${WAYLAND_NAME}" ] || WAYLAND_NAME="wayland-1"
+
+    echo "[*] Kernel serial log will be written to: ${VM_DIR}/serial.log"
+    setpriv --reuid="${REAL_UID}" --regid="${REAL_GID}" --init-groups env \
+        HOME="/home/${REAL_USER}" \
+        USER="${REAL_USER}" \
+        LOGNAME="${REAL_USER}" \
+        XDG_RUNTIME_DIR="/run/user/${REAL_UID}" \
+        WAYLAND_DISPLAY="${WAYLAND_NAME}" \
+        DISPLAY="${DISPLAY:-:0}" \
+        GDK_BACKEND=wayland,x11 \
+        qemu-system-x86_64 "${QEMU_ARGS[@]}"
+    exit $?
 else
-    echo "[*] Booting in --install mode (NAT networking via host wlo1; MT7902 stays on Linux)..."
+    echo "[*] Booting in --install mode (NAT networking via host; MT7902 stays on Linux)..."
+    rm -f "${VM_DIR}/qmp.sock"
     QEMU_ARGS+=(
         -netdev user,id=net0,hostfwd=tcp::50922-:22
         -device virtio-net-pci,netdev=net0,id=net0,mac=52:54:00:c9:18:27
@@ -133,4 +173,4 @@ else
 fi
 
 echo "[*] Kernel serial log will be written to: ${VM_DIR}/serial.log"
-exec qemu-system-x86_64 "${QEMU_ARGS[@]}"
+exec env GDK_BACKEND=wayland,x11 qemu-system-x86_64 "${QEMU_ARGS[@]}"

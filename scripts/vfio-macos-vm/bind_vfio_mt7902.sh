@@ -38,5 +38,9 @@ fi
 
 echo "vfio-pci" > "${SYS_DEV}/driver_override"
 echo "${PCI_BDF}" > /sys/bus/pci/drivers/vfio-pci/bind
+if [ -f "${SYS_DEV}/power/control" ]; then
+    echo "on" > "${SYS_DEV}/power/control" || true
+fi
 
-echo "[OK] ${PCI_BDF} (14c3:7902) is now bound to vfio-pci (/dev/vfio/$(basename "$(readlink -f "${SYS_DEV}/iommu_group")"))."
+IOMMU_GRP=$(basename "$(readlink -f "${SYS_DEV}/iommu_group")")
+echo "[OK] ${PCI_BDF} (14c3:7902) is now bound to vfio-pci (/dev/vfio/${IOMMU_GRP})."
