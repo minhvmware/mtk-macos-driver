@@ -1,0 +1,90 @@
+name: Build & Test MT7902 macOS Native Driver
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host-unit-tests:
+    name: HAL, Firmware, 802.11 & BT Unit Tests (Linux C++17)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev python3
+      - name: Ensure firmware tables exist
+        run: |
+          if [ ! -f AirportMT7902/Firmware/MT7902WifiFwData.cpp ] || [ ! -f MT7902BluetoothFirmware/Firmware/MT7902BtFwData.cpp ]; then
+            python3 scripts/pack_firmware.py --stub
+          fi
+      - name: Validate Info.plist bundles & generate Xcode project
+        run: |
+          python3 scripts/generate_xcode_project.py
+          python3 -c 'import plistlib, glob; [plistlib.load(open(p, "rb")) for p in glob.glob("**/*.plist", recursive=True)]'
+      - name: Run C++17 Hardware Simulation & Protocol Tests
+        run: make test
+
+  macos-kext:
+    name: Build ${{ matrix.scheme }} (${{ matrix.configuration }})
+    runs-on: macos-15
+    needs: host-unit-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: AirportMT7902-Ventura
+            subdir: Ventura
+            kext: AirportMT7902.kext
+          - scheme: AirportMT7902-Sonoma
+            subdir: Sonoma
+            kext: AirportMT7902.kext
+          - scheme: AirportMT7902-Sequoia
+            subdir: Sequoia
+            kext: AirportMT7902.kext
+          - scheme: AirportMT7902-Tahoe
+            subdir: Tahoe
+            kext: AirportMT7902.kext
+          - scheme: MT7902BluetoothFirmware
+            subdir: Bluetooth
+            kext: MT7902BluetoothFirmware.kext
+        configuration: [Release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Acidanthera MacKernelSDK
+        uses: actions/checkout@v4
+        with:
+          repository: acidanthera/MacKernelSDK
+          ref: 3f750085caa17ec3a7880f11c11bf4f48cd6a164
+          path: MacKernelSDK
+      - name: Ensure Xcode project & firmware tables
+        run: |
+          if [ ! -f AirportMT7902/Firmware/MT7902WifiFwData.cpp ] || [ ! -f MT7902BluetoothFirmware/Firmware/MT7902BtFwData.cpp ]; then
+            python3 scripts/pack_firmware.py --stub
+          fi
+          python3 scripts/generate_xcode_project.py
+      - name: Build ${{ matrix.scheme }} (${{ matrix.configuration }})
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          xcodebuild -project MT7902MacOS.xcodeproj \
+            -scheme "${{ matrix.scheme }}" \
+            -configuration "${{ matrix.configuration }}" \
+            ARCHS=x86_64 \
+            SYMROOT="$PWD/build/products" \
+            OBJROOT="$PWD/build/obj" \
+            CODE_SIGNING_ALLOWED=NO \
+            build > "logs/${{ matrix.scheme }}.log" 2>&1 || { tail -n 120 "logs/${{ matrix.scheme }}.log"; exit 1; }
+      - name: Package ${{ matrix.kext }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          ditto -c -k --keepParent \
+            "$PWD/build/products/${{ matrix.configuration }}/${{ matrix.subdir }}/${{ matrix.kext }}" \
+            "artifacts/${{ matrix.scheme }}-${{ matrix.configuration }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.scheme }}-${{ matrix.configuration }}
+          path: artifacts/${{ matrix.scheme }}-${{ matrix.configuration }}.zip
+          if-no-files-found: error

@@ -1,0 +1,896 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 54;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		C1D6261779785A8F4FAFD1C3 /* MT7902WifiFwData.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4817C0FA01808FE071543164 /* MT7902WifiFwData.cpp */; };
+		DFEF413D0D9DE5FBA7B10738 /* MT7902Dma.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A079A46866AEA572C52A6766 /* MT7902Dma.cpp */; };
+		9879144606F7B11FE76E9E1F /* MT7902Mcu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 33775EA0AB1E3C583103A25B /* MT7902Mcu.cpp */; };
+		AC2F7DC7E619F3C1E770B397 /* MT7902Firmware.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 819F65494F181C6A45DE3731 /* MT7902Firmware.cpp */; };
+		0F671B6B5818D5B1D31B2A03 /* MT7902Mac.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CC0D3E233DB90C7E555E3C89 /* MT7902Mac.cpp */; };
+		7C6CBED9373318780EC4E34D /* MT7902Device.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FB08AA5739723554CAB394A7 /* MT7902Device.cpp */; };
+		40E0A38AF7C9EB5B46AE3013 /* MT7902Channels.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */; };
+		A84D0DC4B76C3E1B03B0E66B /* MT7902BeaconParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA9C5BDFBEAAAA86E3A52D33 /* MT7902BeaconParser.cpp */; };
+		F8ED923F58F7D4A6908A846F /* MT7902Sta.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */; };
+		317D88EC66FC8459A3E35956 /* MT7902IOKitBus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B27EF28D146264BD1B584BA8 /* MT7902IOKitBus.cpp */; };
+		238C797CC4BFB6C1BC77727A /* MT7902PCIWrapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2EDEA62F662CC7AB04BC1E /* MT7902PCIWrapper.cpp */; };
+		6CEE12C5E15201062729C619 /* AirportMT7902Interface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72EFBEF04ADCB0759E05EDFE /* AirportMT7902Interface.cpp */; };
+		C61BB17459FECB6FF2A9C20F /* AirportMT7902ControllerV1.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D8448D5D8CF1730CFBD0FF5E /* AirportMT7902ControllerV1.cpp */; };
+		23F7993231C72CFCF293337C /* AirportMT7902EthernetInterface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 10F7282868A110840CA3864C /* AirportMT7902EthernetInterface.cpp */; };
+		2AD77AD628E228E4F78E9130 /* AirportMT7902SkywalkInterface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 79914E2EB65BEAB90B34FFF1 /* AirportMT7902SkywalkInterface.cpp */; };
+		789B190071B9A187AB407DFD /* AirportMT7902ControllerV2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8312B27D21476B3CDAFCA035 /* AirportMT7902ControllerV2.cpp */; };
+		61EAAAD55D74DC9E6B7887CF /* libkmod.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1ED45FA9ED9C27E52497A9B2 /* libkmod.a */; };
+		1417A4E496EAC777A85A1BC8 /* MT7902WifiFwData.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4817C0FA01808FE071543164 /* MT7902WifiFwData.cpp */; };
+		1D0956C7320DB33245CCFFF8 /* MT7902Dma.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A079A46866AEA572C52A6766 /* MT7902Dma.cpp */; };
+		CDFD72C116B08E00FA3D678E /* MT7902Mcu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 33775EA0AB1E3C583103A25B /* MT7902Mcu.cpp */; };
+		36BA649B05F1D7C33CDB2FC1 /* MT7902Firmware.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 819F65494F181C6A45DE3731 /* MT7902Firmware.cpp */; };
+		91905FEC8828392041A14DB5 /* MT7902Mac.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CC0D3E233DB90C7E555E3C89 /* MT7902Mac.cpp */; };
+		F80EFAB56011C0648BDFB693 /* MT7902Device.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FB08AA5739723554CAB394A7 /* MT7902Device.cpp */; };
+		9123043AD578AD09BDEF4CFC /* MT7902Channels.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */; };
+		8DDED2717A61BE7EF6FC5CF9 /* MT7902BeaconParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA9C5BDFBEAAAA86E3A52D33 /* MT7902BeaconParser.cpp */; };
+		C75BCF6AB2470E7C6B5D4B2A /* MT7902Sta.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */; };
+		DF81F7B47A4EBE1289EF07E7 /* MT7902IOKitBus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B27EF28D146264BD1B584BA8 /* MT7902IOKitBus.cpp */; };
+		BC3D0FBC2F20A76C97A3B679 /* MT7902PCIWrapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2EDEA62F662CC7AB04BC1E /* MT7902PCIWrapper.cpp */; };
+		69E75389776BF6676B917FD1 /* AirportMT7902Interface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72EFBEF04ADCB0759E05EDFE /* AirportMT7902Interface.cpp */; };
+		DBF9826C69E36E0156DFB9A2 /* AirportMT7902ControllerV1.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D8448D5D8CF1730CFBD0FF5E /* AirportMT7902ControllerV1.cpp */; };
+		A53B97C85000406BC79357CF /* AirportMT7902EthernetInterface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 10F7282868A110840CA3864C /* AirportMT7902EthernetInterface.cpp */; };
+		804D94236CF86EA56B78C282 /* AirportMT7902SkywalkInterface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 79914E2EB65BEAB90B34FFF1 /* AirportMT7902SkywalkInterface.cpp */; };
+		19DE89660EB9F1F99BEBAB20 /* AirportMT7902ControllerV2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8312B27D21476B3CDAFCA035 /* AirportMT7902ControllerV2.cpp */; };
+		8B63656B9B7C1429F8C879DE /* libkmod.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1ED45FA9ED9C27E52497A9B2 /* libkmod.a */; };
+		337F505FC4771EC2A77D7BC9 /* MT7902WifiFwData.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4817C0FA01808FE071543164 /* MT7902WifiFwData.cpp */; };
+		0F6EC41AC272E716216ED0A3 /* MT7902Dma.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A079A46866AEA572C52A6766 /* MT7902Dma.cpp */; };
+		48B6297A79E51F81E84EF24F /* MT7902Mcu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 33775EA0AB1E3C583103A25B /* MT7902Mcu.cpp */; };
+		1821FA1A909D8946ACBC2A94 /* MT7902Firmware.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 819F65494F181C6A45DE3731 /* MT7902Firmware.cpp */; };
+		6702FC4B1FB30BB11F042FBC /* MT7902Mac.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CC0D3E233DB90C7E555E3C89 /* MT7902Mac.cpp */; };
+		FE8AD6062EF245AC3D5A43B6 /* MT7902Device.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FB08AA5739723554CAB394A7 /* MT7902Device.cpp */; };
+		B16DEEF3B505BDD7C5D323FD /* MT7902Channels.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */; };
+		6DB76C6BA3523949A988F484 /* MT7902BeaconParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA9C5BDFBEAAAA86E3A52D33 /* MT7902BeaconParser.cpp */; };
+		2786A83ABB57FBFCE04053A3 /* MT7902Sta.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */; };
+		56EF17E537879893BEF2004A /* MT7902IOKitBus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B27EF28D146264BD1B584BA8 /* MT7902IOKitBus.cpp */; };
+		EC25B5F510632F05F357B779 /* MT7902PCIWrapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2EDEA62F662CC7AB04BC1E /* MT7902PCIWrapper.cpp */; };
+		4BA2D58CAA297B6F684A515A /* AirportMT7902Interface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72EFBEF04ADCB0759E05EDFE /* AirportMT7902Interface.cpp */; };
+		35ED209F3912EED635DBD5A1 /* AirportMT7902ControllerV1.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D8448D5D8CF1730CFBD0FF5E /* AirportMT7902ControllerV1.cpp */; };
+		F8FAB9358CE05FFCBB9EB084 /* AirportMT7902EthernetInterface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 10F7282868A110840CA3864C /* AirportMT7902EthernetInterface.cpp */; };
+		0E6A91A2E6A1B34B7B17B931 /* AirportMT7902SkywalkInterface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 79914E2EB65BEAB90B34FFF1 /* AirportMT7902SkywalkInterface.cpp */; };
+		A25C6703C28358D28BA4E23E /* AirportMT7902ControllerV2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8312B27D21476B3CDAFCA035 /* AirportMT7902ControllerV2.cpp */; };
+		E3C5F131C89A3A149DF174AC /* libkmod.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1ED45FA9ED9C27E52497A9B2 /* libkmod.a */; };
+		BF8ABE3907BA050499C4A95F /* MT7902WifiFwData.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4817C0FA01808FE071543164 /* MT7902WifiFwData.cpp */; };
+		04375C60797059C78B052699 /* MT7902Dma.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A079A46866AEA572C52A6766 /* MT7902Dma.cpp */; };
+		07D16B67694C01C4D8D44D33 /* MT7902Mcu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 33775EA0AB1E3C583103A25B /* MT7902Mcu.cpp */; };
+		3D5959F40F0798ED8D82EF52 /* MT7902Firmware.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 819F65494F181C6A45DE3731 /* MT7902Firmware.cpp */; };
+		15DCC792B2F1C5508527FB6C /* MT7902Mac.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CC0D3E233DB90C7E555E3C89 /* MT7902Mac.cpp */; };
+		DE381CEB902B9B2136F668FF /* MT7902Device.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FB08AA5739723554CAB394A7 /* MT7902Device.cpp */; };
+		3045FD257E885AF1F2A7FD9D /* MT7902Channels.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */; };
+		F06ABF17C0F1CE489BE9AB54 /* MT7902BeaconParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA9C5BDFBEAAAA86E3A52D33 /* MT7902BeaconParser.cpp */; };
+		3C2BAE4C7021428DD6E2A818 /* MT7902Sta.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */; };
+		5018DC708980AF3D3CB83CB1 /* MT7902IOKitBus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B27EF28D146264BD1B584BA8 /* MT7902IOKitBus.cpp */; };
+		65FB455CAEAB8F8D4F28FAD0 /* MT7902PCIWrapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2EDEA62F662CC7AB04BC1E /* MT7902PCIWrapper.cpp */; };
+		DE75918F714400BBAA89CC40 /* AirportMT7902Interface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72EFBEF04ADCB0759E05EDFE /* AirportMT7902Interface.cpp */; };
+		205080C6C67981E6519AC009 /* AirportMT7902ControllerV1.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D8448D5D8CF1730CFBD0FF5E /* AirportMT7902ControllerV1.cpp */; };
+		8CBE40B615CF81851FF02CD1 /* AirportMT7902EthernetInterface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 10F7282868A110840CA3864C /* AirportMT7902EthernetInterface.cpp */; };
+		FC1695E946640A09607F7D0F /* AirportMT7902SkywalkInterface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 79914E2EB65BEAB90B34FFF1 /* AirportMT7902SkywalkInterface.cpp */; };
+		7F9CF049DC86796C0ADCCDF4 /* AirportMT7902ControllerV2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8312B27D21476B3CDAFCA035 /* AirportMT7902ControllerV2.cpp */; };
+		C83D09E953AA0CC113EBFE02 /* libkmod.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1ED45FA9ED9C27E52497A9B2 /* libkmod.a */; };
+		5305D02CD783A738B3A1515A /* MT7902BtFwData.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 66F6D0351BF73FDEBBC05DD4 /* MT7902BtFwData.cpp */; };
+		10693D085A39FE7A4C77E7DA /* MT7902BtProtocol.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 346CD19DF9520EC79271EFFC /* MT7902BtProtocol.cpp */; };
+		D0E804619D8F254594330E35 /* MT7902BluetoothFirmware.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E32B3423CEB1D09080BFB734 /* MT7902BluetoothFirmware.cpp */; };
+		6C40171111B4F7AEEE86BABE /* libkmod.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1ED45FA9ED9C27E52497A9B2 /* libkmod.a */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		79EB3BF90D8A9DC3B005C313 /* MT7902FwStore.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902FwStore.hpp; path = AirportMT7902/Firmware/MT7902FwStore.hpp; sourceTree = "<group>"; };
+		4817C0FA01808FE071543164 /* MT7902WifiFwData.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902WifiFwData.cpp; path = AirportMT7902/Firmware/MT7902WifiFwData.cpp; sourceTree = "<group>"; };
+		ADAFD1E4C51AF452E454CA1C /* MT7902Bus.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Bus.hpp; path = AirportMT7902/HAL/MT7902Bus.hpp; sourceTree = "<group>"; };
+		FB08AA5739723554CAB394A7 /* MT7902Device.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Device.cpp; path = AirportMT7902/HAL/MT7902Device.cpp; sourceTree = "<group>"; };
+		3BB160AC1A618AECEF7B8B26 /* MT7902Device.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Device.hpp; path = AirportMT7902/HAL/MT7902Device.hpp; sourceTree = "<group>"; };
+		A079A46866AEA572C52A6766 /* MT7902Dma.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Dma.cpp; path = AirportMT7902/HAL/MT7902Dma.cpp; sourceTree = "<group>"; };
+		90F86CE9EA9CBAF93BE6102E /* MT7902Dma.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Dma.hpp; path = AirportMT7902/HAL/MT7902Dma.hpp; sourceTree = "<group>"; };
+		CD81E9722E6D26EF9976118F /* MT7902DmaTypes.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902DmaTypes.hpp; path = AirportMT7902/HAL/MT7902DmaTypes.hpp; sourceTree = "<group>"; };
+		819F65494F181C6A45DE3731 /* MT7902Firmware.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Firmware.cpp; path = AirportMT7902/HAL/MT7902Firmware.cpp; sourceTree = "<group>"; };
+		2FFFA108D4673C30C285A2F7 /* MT7902Firmware.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Firmware.hpp; path = AirportMT7902/HAL/MT7902Firmware.hpp; sourceTree = "<group>"; };
+		CC0D3E233DB90C7E555E3C89 /* MT7902Mac.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Mac.cpp; path = AirportMT7902/HAL/MT7902Mac.cpp; sourceTree = "<group>"; };
+		7D1D28AB8980F53647A3D7D5 /* MT7902Mac.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Mac.hpp; path = AirportMT7902/HAL/MT7902Mac.hpp; sourceTree = "<group>"; };
+		33775EA0AB1E3C583103A25B /* MT7902Mcu.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Mcu.cpp; path = AirportMT7902/HAL/MT7902Mcu.cpp; sourceTree = "<group>"; };
+		6010D0F34B6E339927CA781A /* MT7902Mcu.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Mcu.hpp; path = AirportMT7902/HAL/MT7902Mcu.hpp; sourceTree = "<group>"; };
+		2DA69E3D35EEB501D7D0FB32 /* MT7902McuTypes.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902McuTypes.hpp; path = AirportMT7902/HAL/MT7902McuTypes.hpp; sourceTree = "<group>"; };
+		7B42B23363F436F31F4E8971 /* MT7902Regs.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Regs.hpp; path = AirportMT7902/HAL/MT7902Regs.hpp; sourceTree = "<group>"; };
+		39BCE6EFF097B67C1BF5AA18 /* Info-Sequoia.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "Info-Sequoia.plist"; path = "AirportMT7902/Info-Sequoia.plist"; sourceTree = "<group>"; };
+		34D7371BA7AB517EE08E3AFA /* Info-Sonoma.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "Info-Sonoma.plist"; path = "AirportMT7902/Info-Sonoma.plist"; sourceTree = "<group>"; };
+		44C3B8B2C50FF2E7617F71AE /* Info-Tahoe.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "Info-Tahoe.plist"; path = "AirportMT7902/Info-Tahoe.plist"; sourceTree = "<group>"; };
+		B1798F46B71A45CBF514450D /* Info-Ventura.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "Info-Ventura.plist"; path = "AirportMT7902/Info-Ventura.plist"; sourceTree = "<group>"; };
+		D8448D5D8CF1730CFBD0FF5E /* AirportMT7902ControllerV1.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = AirportMT7902ControllerV1.cpp; path = AirportMT7902/Native/AirportMT7902ControllerV1.cpp; sourceTree = "<group>"; };
+		F646C56EFC8367F22BE53A0C /* AirportMT7902ControllerV1.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = AirportMT7902ControllerV1.hpp; path = AirportMT7902/Native/AirportMT7902ControllerV1.hpp; sourceTree = "<group>"; };
+		8312B27D21476B3CDAFCA035 /* AirportMT7902ControllerV2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = AirportMT7902ControllerV2.cpp; path = AirportMT7902/Native/AirportMT7902ControllerV2.cpp; sourceTree = "<group>"; };
+		789D31230CEF8243B5CFD5FC /* AirportMT7902ControllerV2.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = AirportMT7902ControllerV2.hpp; path = AirportMT7902/Native/AirportMT7902ControllerV2.hpp; sourceTree = "<group>"; };
+		10F7282868A110840CA3864C /* AirportMT7902EthernetInterface.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = AirportMT7902EthernetInterface.cpp; path = AirportMT7902/Native/AirportMT7902EthernetInterface.cpp; sourceTree = "<group>"; };
+		1E8D79E121391F00D9F1A180 /* AirportMT7902EthernetInterface.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = AirportMT7902EthernetInterface.hpp; path = AirportMT7902/Native/AirportMT7902EthernetInterface.hpp; sourceTree = "<group>"; };
+		72EFBEF04ADCB0759E05EDFE /* AirportMT7902Interface.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = AirportMT7902Interface.cpp; path = AirportMT7902/Native/AirportMT7902Interface.cpp; sourceTree = "<group>"; };
+		38E0CC5F9CFF733BD3D35F72 /* AirportMT7902Interface.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = AirportMT7902Interface.hpp; path = AirportMT7902/Native/AirportMT7902Interface.hpp; sourceTree = "<group>"; };
+		79914E2EB65BEAB90B34FFF1 /* AirportMT7902SkywalkInterface.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = AirportMT7902SkywalkInterface.cpp; path = AirportMT7902/Native/AirportMT7902SkywalkInterface.cpp; sourceTree = "<group>"; };
+		6B6D1F0476C7C25B476EF458 /* AirportMT7902SkywalkInterface.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = AirportMT7902SkywalkInterface.hpp; path = AirportMT7902/Native/AirportMT7902SkywalkInterface.hpp; sourceTree = "<group>"; };
+		CAFCC1370BEC1AEC6F99BF3B /* AirportMT7902WCL.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = AirportMT7902WCL.hpp; path = AirportMT7902/Native/AirportMT7902WCL.hpp; sourceTree = "<group>"; };
+		B27EF28D146264BD1B584BA8 /* MT7902IOKitBus.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902IOKitBus.cpp; path = AirportMT7902/Native/MT7902IOKitBus.cpp; sourceTree = "<group>"; };
+		9BB6D10B0DF0E90C5198EF31 /* MT7902IOKitBus.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902IOKitBus.hpp; path = AirportMT7902/Native/MT7902IOKitBus.hpp; sourceTree = "<group>"; };
+		AF2EDEA62F662CC7AB04BC1E /* MT7902PCIWrapper.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902PCIWrapper.cpp; path = AirportMT7902/Native/MT7902PCIWrapper.cpp; sourceTree = "<group>"; };
+		CFD97DB9E47B4028471E5B7B /* MT7902PCIWrapper.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902PCIWrapper.hpp; path = AirportMT7902/Native/MT7902PCIWrapper.hpp; sourceTree = "<group>"; };
+		AA9C5BDFBEAAAA86E3A52D33 /* MT7902BeaconParser.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902BeaconParser.cpp; path = AirportMT7902/Net80211/MT7902BeaconParser.cpp; sourceTree = "<group>"; };
+		FD84C7B73568D9E590CE6211 /* MT7902BeaconParser.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902BeaconParser.hpp; path = AirportMT7902/Net80211/MT7902BeaconParser.hpp; sourceTree = "<group>"; };
+		E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Channels.cpp; path = AirportMT7902/Net80211/MT7902Channels.cpp; sourceTree = "<group>"; };
+		514381CFD8EFEFE73E054C90 /* MT7902Channels.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Channels.hpp; path = AirportMT7902/Net80211/MT7902Channels.hpp; sourceTree = "<group>"; };
+		8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Sta.cpp; path = AirportMT7902/Net80211/MT7902Sta.cpp; sourceTree = "<group>"; };
+		680F460E6187D6B8E30BAE9A /* MT7902Sta.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Sta.hpp; path = AirportMT7902/Net80211/MT7902Sta.hpp; sourceTree = "<group>"; };
+		BBF9D2DCDD7B9BB49861DEF4 /* PrivateSPI.pch */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = PrivateSPI.pch; path = AirportMT7902/PrivateSPI.pch; sourceTree = "<group>"; };
+		66F6D0351BF73FDEBBC05DD4 /* MT7902BtFwData.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902BtFwData.cpp; path = MT7902BluetoothFirmware/Firmware/MT7902BtFwData.cpp; sourceTree = "<group>"; };
+		1B5218971158B96462036B78 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = MT7902BluetoothFirmware/Info.plist; sourceTree = "<group>"; };
+		E32B3423CEB1D09080BFB734 /* MT7902BluetoothFirmware.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902BluetoothFirmware.cpp; path = MT7902BluetoothFirmware/MT7902BluetoothFirmware.cpp; sourceTree = "<group>"; };
+		90C09C71C2FC211A22A3236C /* MT7902BluetoothFirmware.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902BluetoothFirmware.hpp; path = MT7902BluetoothFirmware/MT7902BluetoothFirmware.hpp; sourceTree = "<group>"; };
+		346CD19DF9520EC79271EFFC /* MT7902BtProtocol.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902BtProtocol.cpp; path = MT7902BluetoothFirmware/MT7902BtProtocol.cpp; sourceTree = "<group>"; };
+		ABE51E9B4B237C9E8F7F9EA3 /* MT7902BtProtocol.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902BtProtocol.hpp; path = MT7902BluetoothFirmware/MT7902BtProtocol.hpp; sourceTree = "<group>"; };
+		7CF4AF55393779CAF5831F35 /* MT7902Common.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Common.hpp; path = include/MT7902Common.hpp; sourceTree = "<group>"; };
+		1ED45FA9ED9C27E52497A9B2 /* libkmod.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libkmod.a; path = MacKernelSDK/Library/x86_64/libkmod.a; sourceTree = "<group>"; };
+		83A6F017D00A29FF00CABF64 /* AirportMT7902.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AirportMT7902.kext; sourceTree = BUILT_PRODUCTS_DIR; };
+		9409F3456BAFA278E3EA594B /* AirportMT7902.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AirportMT7902.kext; sourceTree = BUILT_PRODUCTS_DIR; };
+		8E791FF15542054969F21725 /* AirportMT7902.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AirportMT7902.kext; sourceTree = BUILT_PRODUCTS_DIR; };
+		12C9846C10A748128F181BF1 /* AirportMT7902.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AirportMT7902.kext; sourceTree = BUILT_PRODUCTS_DIR; };
+		6D361BD9A5FE8A7F512AF9F6 /* MT7902BluetoothFirmware.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MT7902BluetoothFirmware.kext; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8168A7CE919CB00DBFE74CD6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				61EAAAD55D74DC9E6B7887CF /* libkmod.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F20638F5B864184AB4997EFE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8B63656B9B7C1429F8C879DE /* libkmod.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5C5F12E53DEFCE525746EC4F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E3C5F131C89A3A149DF174AC /* libkmod.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6CB822CCDFF02BFB0955BD3E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C83D09E953AA0CC113EBFE02 /* libkmod.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4D526E36C9038C6C222328DD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6C40171111B4F7AEEE86BABE /* libkmod.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		ADCF10F76EBF2A74473E9DC4 = {
+			isa = PBXGroup;
+			children = (
+				79EB3BF90D8A9DC3B005C313 /* MT7902FwStore.hpp */,
+				4817C0FA01808FE071543164 /* MT7902WifiFwData.cpp */,
+				ADAFD1E4C51AF452E454CA1C /* MT7902Bus.hpp */,
+				FB08AA5739723554CAB394A7 /* MT7902Device.cpp */,
+				3BB160AC1A618AECEF7B8B26 /* MT7902Device.hpp */,
+				A079A46866AEA572C52A6766 /* MT7902Dma.cpp */,
+				90F86CE9EA9CBAF93BE6102E /* MT7902Dma.hpp */,
+				CD81E9722E6D26EF9976118F /* MT7902DmaTypes.hpp */,
+				819F65494F181C6A45DE3731 /* MT7902Firmware.cpp */,
+				2FFFA108D4673C30C285A2F7 /* MT7902Firmware.hpp */,
+				CC0D3E233DB90C7E555E3C89 /* MT7902Mac.cpp */,
+				7D1D28AB8980F53647A3D7D5 /* MT7902Mac.hpp */,
+				33775EA0AB1E3C583103A25B /* MT7902Mcu.cpp */,
+				6010D0F34B6E339927CA781A /* MT7902Mcu.hpp */,
+				2DA69E3D35EEB501D7D0FB32 /* MT7902McuTypes.hpp */,
+				7B42B23363F436F31F4E8971 /* MT7902Regs.hpp */,
+				39BCE6EFF097B67C1BF5AA18 /* Info-Sequoia.plist */,
+				34D7371BA7AB517EE08E3AFA /* Info-Sonoma.plist */,
+				44C3B8B2C50FF2E7617F71AE /* Info-Tahoe.plist */,
+				B1798F46B71A45CBF514450D /* Info-Ventura.plist */,
+				D8448D5D8CF1730CFBD0FF5E /* AirportMT7902ControllerV1.cpp */,
+				F646C56EFC8367F22BE53A0C /* AirportMT7902ControllerV1.hpp */,
+				8312B27D21476B3CDAFCA035 /* AirportMT7902ControllerV2.cpp */,
+				789D31230CEF8243B5CFD5FC /* AirportMT7902ControllerV2.hpp */,
+				10F7282868A110840CA3864C /* AirportMT7902EthernetInterface.cpp */,
+				1E8D79E121391F00D9F1A180 /* AirportMT7902EthernetInterface.hpp */,
+				72EFBEF04ADCB0759E05EDFE /* AirportMT7902Interface.cpp */,
+				38E0CC5F9CFF733BD3D35F72 /* AirportMT7902Interface.hpp */,
+				79914E2EB65BEAB90B34FFF1 /* AirportMT7902SkywalkInterface.cpp */,
+				6B6D1F0476C7C25B476EF458 /* AirportMT7902SkywalkInterface.hpp */,
+				CAFCC1370BEC1AEC6F99BF3B /* AirportMT7902WCL.hpp */,
+				B27EF28D146264BD1B584BA8 /* MT7902IOKitBus.cpp */,
+				9BB6D10B0DF0E90C5198EF31 /* MT7902IOKitBus.hpp */,
+				AF2EDEA62F662CC7AB04BC1E /* MT7902PCIWrapper.cpp */,
+				CFD97DB9E47B4028471E5B7B /* MT7902PCIWrapper.hpp */,
+				AA9C5BDFBEAAAA86E3A52D33 /* MT7902BeaconParser.cpp */,
+				FD84C7B73568D9E590CE6211 /* MT7902BeaconParser.hpp */,
+				E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */,
+				514381CFD8EFEFE73E054C90 /* MT7902Channels.hpp */,
+				8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */,
+				680F460E6187D6B8E30BAE9A /* MT7902Sta.hpp */,
+				BBF9D2DCDD7B9BB49861DEF4 /* PrivateSPI.pch */,
+				66F6D0351BF73FDEBBC05DD4 /* MT7902BtFwData.cpp */,
+				1B5218971158B96462036B78 /* Info.plist */,
+				E32B3423CEB1D09080BFB734 /* MT7902BluetoothFirmware.cpp */,
+				90C09C71C2FC211A22A3236C /* MT7902BluetoothFirmware.hpp */,
+				346CD19DF9520EC79271EFFC /* MT7902BtProtocol.cpp */,
+				ABE51E9B4B237C9E8F7F9EA3 /* MT7902BtProtocol.hpp */,
+				7CF4AF55393779CAF5831F35 /* MT7902Common.hpp */,
+				1ED45FA9ED9C27E52497A9B2 /* libkmod.a */,
+				00C45FD35CB0F9C5F764F070 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		00C45FD35CB0F9C5F764F070 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				83A6F017D00A29FF00CABF64 /* AirportMT7902.kext */,
+				9409F3456BAFA278E3EA594B /* AirportMT7902.kext */,
+				8E791FF15542054969F21725 /* AirportMT7902.kext */,
+				12C9846C10A748128F181BF1 /* AirportMT7902.kext */,
+				6D361BD9A5FE8A7F512AF9F6 /* MT7902BluetoothFirmware.kext */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		FFA4260713298C92FB468F50 /* AirportMT7902-Ventura */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 06B30844C1CCB112B3FDB90C /* Build configuration list for PBXNativeTarget "AirportMT7902-Ventura" */;
+			buildPhases = (
+				68D3ADE3BB4220B022CA73B6 /* Sources */,
+				8168A7CE919CB00DBFE74CD6 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "AirportMT7902-Ventura";
+			productName = AirportMT7902;
+			productReference = 83A6F017D00A29FF00CABF64 /* AirportMT7902.kext */;
+			productType = "com.apple.product-type.kernel-extension";
+		};
+		89BE4EF1AAF900665A9D04B3 /* AirportMT7902-Sonoma */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A755FC07EFD7B9AC6043F7C9 /* Build configuration list for PBXNativeTarget "AirportMT7902-Sonoma" */;
+			buildPhases = (
+				B3505EFC8242D5200132F0B9 /* Sources */,
+				F20638F5B864184AB4997EFE /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "AirportMT7902-Sonoma";
+			productName = AirportMT7902;
+			productReference = 9409F3456BAFA278E3EA594B /* AirportMT7902.kext */;
+			productType = "com.apple.product-type.kernel-extension";
+		};
+		DB425E97E5C31DEC3B7C5652 /* AirportMT7902-Sequoia */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 21066073B376AD44BF451130 /* Build configuration list for PBXNativeTarget "AirportMT7902-Sequoia" */;
+			buildPhases = (
+				916A100649975645F376A115 /* Sources */,
+				5C5F12E53DEFCE525746EC4F /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "AirportMT7902-Sequoia";
+			productName = AirportMT7902;
+			productReference = 8E791FF15542054969F21725 /* AirportMT7902.kext */;
+			productType = "com.apple.product-type.kernel-extension";
+		};
+		992BD4144A434205A62BDEED /* AirportMT7902-Tahoe */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A94442461AB7EF91DC95642E /* Build configuration list for PBXNativeTarget "AirportMT7902-Tahoe" */;
+			buildPhases = (
+				889F4A5175B3D9340A346390 /* Sources */,
+				6CB822CCDFF02BFB0955BD3E /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "AirportMT7902-Tahoe";
+			productName = AirportMT7902;
+			productReference = 12C9846C10A748128F181BF1 /* AirportMT7902.kext */;
+			productType = "com.apple.product-type.kernel-extension";
+		};
+		83E1B716DD38FEFBDAD5F8D5 /* MT7902BluetoothFirmware */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A6543F7B91EFAEE4BA34577 /* Build configuration list for PBXNativeTarget "MT7902BluetoothFirmware" */;
+			buildPhases = (
+				0A1ED49A8A97D857ACFDF380 /* Sources */,
+				4D526E36C9038C6C222328DD /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MT7902BluetoothFirmware;
+			productName = MT7902BluetoothFirmware;
+			productReference = 6D361BD9A5FE8A7F512AF9F6 /* MT7902BluetoothFirmware.kext */;
+			productType = "com.apple.product-type.kernel-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		4BBF72F597AE67D110289E26 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = C91DFE8190D6AA5E5650E6C4 /* Build configuration list for PBXProject "MT7902MacOS" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+			);
+			mainGroup = ADCF10F76EBF2A74473E9DC4;
+			productRefGroup = 00C45FD35CB0F9C5F764F070 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				FFA4260713298C92FB468F50 /* AirportMT7902-Ventura */,
+				89BE4EF1AAF900665A9D04B3 /* AirportMT7902-Sonoma */,
+				DB425E97E5C31DEC3B7C5652 /* AirportMT7902-Sequoia */,
+				992BD4144A434205A62BDEED /* AirportMT7902-Tahoe */,
+				83E1B716DD38FEFBDAD5F8D5 /* MT7902BluetoothFirmware */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		68D3ADE3BB4220B022CA73B6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C1D6261779785A8F4FAFD1C3 /* MT7902WifiFwData.cpp in Sources */,
+				DFEF413D0D9DE5FBA7B10738 /* MT7902Dma.cpp in Sources */,
+				9879144606F7B11FE76E9E1F /* MT7902Mcu.cpp in Sources */,
+				AC2F7DC7E619F3C1E770B397 /* MT7902Firmware.cpp in Sources */,
+				0F671B6B5818D5B1D31B2A03 /* MT7902Mac.cpp in Sources */,
+				7C6CBED9373318780EC4E34D /* MT7902Device.cpp in Sources */,
+				40E0A38AF7C9EB5B46AE3013 /* MT7902Channels.cpp in Sources */,
+				A84D0DC4B76C3E1B03B0E66B /* MT7902BeaconParser.cpp in Sources */,
+				F8ED923F58F7D4A6908A846F /* MT7902Sta.cpp in Sources */,
+				317D88EC66FC8459A3E35956 /* MT7902IOKitBus.cpp in Sources */,
+				238C797CC4BFB6C1BC77727A /* MT7902PCIWrapper.cpp in Sources */,
+				6CEE12C5E15201062729C619 /* AirportMT7902Interface.cpp in Sources */,
+				C61BB17459FECB6FF2A9C20F /* AirportMT7902ControllerV1.cpp in Sources */,
+				23F7993231C72CFCF293337C /* AirportMT7902EthernetInterface.cpp in Sources */,
+				2AD77AD628E228E4F78E9130 /* AirportMT7902SkywalkInterface.cpp in Sources */,
+				789B190071B9A187AB407DFD /* AirportMT7902ControllerV2.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B3505EFC8242D5200132F0B9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1417A4E496EAC777A85A1BC8 /* MT7902WifiFwData.cpp in Sources */,
+				1D0956C7320DB33245CCFFF8 /* MT7902Dma.cpp in Sources */,
+				CDFD72C116B08E00FA3D678E /* MT7902Mcu.cpp in Sources */,
+				36BA649B05F1D7C33CDB2FC1 /* MT7902Firmware.cpp in Sources */,
+				91905FEC8828392041A14DB5 /* MT7902Mac.cpp in Sources */,
+				F80EFAB56011C0648BDFB693 /* MT7902Device.cpp in Sources */,
+				9123043AD578AD09BDEF4CFC /* MT7902Channels.cpp in Sources */,
+				8DDED2717A61BE7EF6FC5CF9 /* MT7902BeaconParser.cpp in Sources */,
+				C75BCF6AB2470E7C6B5D4B2A /* MT7902Sta.cpp in Sources */,
+				DF81F7B47A4EBE1289EF07E7 /* MT7902IOKitBus.cpp in Sources */,
+				BC3D0FBC2F20A76C97A3B679 /* MT7902PCIWrapper.cpp in Sources */,
+				69E75389776BF6676B917FD1 /* AirportMT7902Interface.cpp in Sources */,
+				DBF9826C69E36E0156DFB9A2 /* AirportMT7902ControllerV1.cpp in Sources */,
+				A53B97C85000406BC79357CF /* AirportMT7902EthernetInterface.cpp in Sources */,
+				804D94236CF86EA56B78C282 /* AirportMT7902SkywalkInterface.cpp in Sources */,
+				19DE89660EB9F1F99BEBAB20 /* AirportMT7902ControllerV2.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		916A100649975645F376A115 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				337F505FC4771EC2A77D7BC9 /* MT7902WifiFwData.cpp in Sources */,
+				0F6EC41AC272E716216ED0A3 /* MT7902Dma.cpp in Sources */,
+				48B6297A79E51F81E84EF24F /* MT7902Mcu.cpp in Sources */,
+				1821FA1A909D8946ACBC2A94 /* MT7902Firmware.cpp in Sources */,
+				6702FC4B1FB30BB11F042FBC /* MT7902Mac.cpp in Sources */,
+				FE8AD6062EF245AC3D5A43B6 /* MT7902Device.cpp in Sources */,
+				B16DEEF3B505BDD7C5D323FD /* MT7902Channels.cpp in Sources */,
+				6DB76C6BA3523949A988F484 /* MT7902BeaconParser.cpp in Sources */,
+				2786A83ABB57FBFCE04053A3 /* MT7902Sta.cpp in Sources */,
+				56EF17E537879893BEF2004A /* MT7902IOKitBus.cpp in Sources */,
+				EC25B5F510632F05F357B779 /* MT7902PCIWrapper.cpp in Sources */,
+				4BA2D58CAA297B6F684A515A /* AirportMT7902Interface.cpp in Sources */,
+				35ED209F3912EED635DBD5A1 /* AirportMT7902ControllerV1.cpp in Sources */,
+				F8FAB9358CE05FFCBB9EB084 /* AirportMT7902EthernetInterface.cpp in Sources */,
+				0E6A91A2E6A1B34B7B17B931 /* AirportMT7902SkywalkInterface.cpp in Sources */,
+				A25C6703C28358D28BA4E23E /* AirportMT7902ControllerV2.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		889F4A5175B3D9340A346390 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF8ABE3907BA050499C4A95F /* MT7902WifiFwData.cpp in Sources */,
+				04375C60797059C78B052699 /* MT7902Dma.cpp in Sources */,
+				07D16B67694C01C4D8D44D33 /* MT7902Mcu.cpp in Sources */,
+				3D5959F40F0798ED8D82EF52 /* MT7902Firmware.cpp in Sources */,
+				15DCC792B2F1C5508527FB6C /* MT7902Mac.cpp in Sources */,
+				DE381CEB902B9B2136F668FF /* MT7902Device.cpp in Sources */,
+				3045FD257E885AF1F2A7FD9D /* MT7902Channels.cpp in Sources */,
+				F06ABF17C0F1CE489BE9AB54 /* MT7902BeaconParser.cpp in Sources */,
+				3C2BAE4C7021428DD6E2A818 /* MT7902Sta.cpp in Sources */,
+				5018DC708980AF3D3CB83CB1 /* MT7902IOKitBus.cpp in Sources */,
+				65FB455CAEAB8F8D4F28FAD0 /* MT7902PCIWrapper.cpp in Sources */,
+				DE75918F714400BBAA89CC40 /* AirportMT7902Interface.cpp in Sources */,
+				205080C6C67981E6519AC009 /* AirportMT7902ControllerV1.cpp in Sources */,
+				8CBE40B615CF81851FF02CD1 /* AirportMT7902EthernetInterface.cpp in Sources */,
+				FC1695E946640A09607F7D0F /* AirportMT7902SkywalkInterface.cpp in Sources */,
+				7F9CF049DC86796C0ADCCDF4 /* AirportMT7902ControllerV2.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A1ED49A8A97D857ACFDF380 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5305D02CD783A738B3A1515A /* MT7902BtFwData.cpp in Sources */,
+				10693D085A39FE7A4C77E7DA /* MT7902BtProtocol.cpp in Sources */,
+				D0E804619D8F254594330E35 /* MT7902BluetoothFirmware.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		C14A48B373E9F7D60B0BB401 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Ventura";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					__PRIVATE_SPI__,
+					AIRPORT,
+					"__IO80211_TARGET=__MAC_13_0",
+				);
+				INFOPLIST_FILE = "AirportMT7902/Info-Ventura.plist";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MODULE_NAME = com.mtk.AirportMT7902;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.AirportMT7902;
+				PRODUCT_MODULE_NAME = AirportMT7902;
+				PRODUCT_NAME = AirportMT7902;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Debug;
+		};
+		C1E894F5146C073CFD56645C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Ventura";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					__PRIVATE_SPI__,
+					AIRPORT,
+					"__IO80211_TARGET=__MAC_13_0",
+				);
+				INFOPLIST_FILE = "AirportMT7902/Info-Ventura.plist";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MODULE_NAME = com.mtk.AirportMT7902;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.AirportMT7902;
+				PRODUCT_MODULE_NAME = AirportMT7902;
+				PRODUCT_NAME = AirportMT7902;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Release;
+		};
+		A9E3D59E1D4366C6EC3694F5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Sonoma";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					__PRIVATE_SPI__,
+					AIRPORT,
+					IO80211FAMILY_V2,
+					"__IO80211_TARGET=__MAC_14_4",
+				);
+				INFOPLIST_FILE = "AirportMT7902/Info-Sonoma.plist";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				MODULE_NAME = com.mtk.AirportMT7902;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.AirportMT7902;
+				PRODUCT_MODULE_NAME = AirportMT7902;
+				PRODUCT_NAME = AirportMT7902;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Debug;
+		};
+		9FEEA93A70433577825A0333 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Sonoma";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					__PRIVATE_SPI__,
+					AIRPORT,
+					IO80211FAMILY_V2,
+					"__IO80211_TARGET=__MAC_14_4",
+				);
+				INFOPLIST_FILE = "AirportMT7902/Info-Sonoma.plist";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				MODULE_NAME = com.mtk.AirportMT7902;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.AirportMT7902;
+				PRODUCT_MODULE_NAME = AirportMT7902;
+				PRODUCT_NAME = AirportMT7902;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Release;
+		};
+		652EBF63E4C9322F43D85E82 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Sequoia";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					__PRIVATE_SPI__,
+					AIRPORT,
+					IO80211FAMILY_V2,
+					AIRPORT_WCL,
+					"__IO80211_TARGET=__MAC_15_2",
+				);
+				INFOPLIST_FILE = "AirportMT7902/Info-Sequoia.plist";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MODULE_NAME = com.mtk.AirportMT7902;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.AirportMT7902;
+				PRODUCT_MODULE_NAME = AirportMT7902;
+				PRODUCT_NAME = AirportMT7902;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Debug;
+		};
+		BDFC2D1F88E26E9E09166C67 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Sequoia";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					__PRIVATE_SPI__,
+					AIRPORT,
+					IO80211FAMILY_V2,
+					AIRPORT_WCL,
+					"__IO80211_TARGET=__MAC_15_2",
+				);
+				INFOPLIST_FILE = "AirportMT7902/Info-Sequoia.plist";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MODULE_NAME = com.mtk.AirportMT7902;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.AirportMT7902;
+				PRODUCT_MODULE_NAME = AirportMT7902;
+				PRODUCT_NAME = AirportMT7902;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Release;
+		};
+		7C1996D7B64427765FFE2A0F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Tahoe";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					__PRIVATE_SPI__,
+					AIRPORT,
+					IO80211FAMILY_V2,
+					AIRPORT_WCL,
+					"__IO80211_TARGET=__MAC_26_0",
+				);
+				INFOPLIST_FILE = "AirportMT7902/Info-Tahoe.plist";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MODULE_NAME = com.mtk.AirportMT7902;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.AirportMT7902;
+				PRODUCT_MODULE_NAME = AirportMT7902;
+				PRODUCT_NAME = AirportMT7902;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Debug;
+		};
+		BF639996599618C30307A182 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Tahoe";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					__PRIVATE_SPI__,
+					AIRPORT,
+					IO80211FAMILY_V2,
+					AIRPORT_WCL,
+					"__IO80211_TARGET=__MAC_26_0",
+				);
+				INFOPLIST_FILE = "AirportMT7902/Info-Tahoe.plist";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MODULE_NAME = com.mtk.AirportMT7902;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.AirportMT7902;
+				PRODUCT_MODULE_NAME = AirportMT7902;
+				PRODUCT_NAME = AirportMT7902;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Release;
+		};
+		C9CDCB64335BB30E2BF26C30 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Bluetooth";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					__PRIVATE_SPI__,
+				);
+				INFOPLIST_FILE = MT7902BluetoothFirmware/Info.plist;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MODULE_NAME = com.mtk.MT7902BluetoothFirmware;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.MT7902BluetoothFirmware;
+				PRODUCT_MODULE_NAME = MT7902BluetoothFirmware;
+				PRODUCT_NAME = MT7902BluetoothFirmware;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Debug;
+		};
+		81FE215FE3F8F0B62D6C8638 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Bluetooth";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					__PRIVATE_SPI__,
+				);
+				INFOPLIST_FILE = MT7902BluetoothFirmware/Info.plist;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MODULE_NAME = com.mtk.MT7902BluetoothFirmware;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.MT7902BluetoothFirmware;
+				PRODUCT_MODULE_NAME = MT7902BluetoothFirmware;
+				PRODUCT_NAME = MT7902BluetoothFirmware;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Release;
+		};
+		6BFDD5F520C2B21B56746682 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = x86_64;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				GCC_C_LANGUAGE_STANDARD = c11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					KERNEL,
+					"MT7902_DRIVER_VERSION=\"${MODULE_VERSION}\"",
+				);
+				KERNEL_EXTENSION_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/MacKernelSDK/Headers";
+				KERNEL_FRAMEWORK_HEADERS = "$(PROJECT_DIR)/MacKernelSDK/Headers";
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MODULE_VERSION = 1.0.0;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = (
+					"-Wno-register",
+					"-Wno-deprecated-register",
+					"$(OTHER_CFLAGS)",
+				);
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		D1565967ED5AF67261704652 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = x86_64;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				GCC_C_LANGUAGE_STANDARD = c11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 2;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					KERNEL,
+					"MT7902_DRIVER_VERSION=\"${MODULE_VERSION}\"",
+				);
+				KERNEL_EXTENSION_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/MacKernelSDK/Headers";
+				KERNEL_FRAMEWORK_HEADERS = "$(PROJECT_DIR)/MacKernelSDK/Headers";
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MODULE_VERSION = 1.0.0;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = (
+					"-Wno-register",
+					"-Wno-deprecated-register",
+					"$(OTHER_CFLAGS)",
+				);
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		06B30844C1CCB112B3FDB90C /* Build configuration list for PBXNativeTarget "AirportMT7902-Ventura" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C14A48B373E9F7D60B0BB401 /* Debug */,
+				C1E894F5146C073CFD56645C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A755FC07EFD7B9AC6043F7C9 /* Build configuration list for PBXNativeTarget "AirportMT7902-Sonoma" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A9E3D59E1D4366C6EC3694F5 /* Debug */,
+				9FEEA93A70433577825A0333 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		21066073B376AD44BF451130 /* Build configuration list for PBXNativeTarget "AirportMT7902-Sequoia" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				652EBF63E4C9322F43D85E82 /* Debug */,
+				BDFC2D1F88E26E9E09166C67 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A94442461AB7EF91DC95642E /* Build configuration list for PBXNativeTarget "AirportMT7902-Tahoe" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7C1996D7B64427765FFE2A0F /* Debug */,
+				BF639996599618C30307A182 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1A6543F7B91EFAEE4BA34577 /* Build configuration list for PBXNativeTarget "MT7902BluetoothFirmware" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C9CDCB64335BB30E2BF26C30 /* Debug */,
+				81FE215FE3F8F0B62D6C8638 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C91DFE8190D6AA5E5650E6C4 /* Build configuration list for PBXProject "MT7902MacOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6BFDD5F520C2B21B56746682 /* Debug */,
+				D1565967ED5AF67261704652 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 4BBF72F597AE67D110289E26 /* Project object */;
+}
