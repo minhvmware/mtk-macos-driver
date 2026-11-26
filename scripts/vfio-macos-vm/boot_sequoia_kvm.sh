@@ -74,9 +74,9 @@ QEMU_ARGS=(
     -device ide-hd,bus=sata.4,drive=MacHDD
     -device vmware-svga
     -serial "file:${VM_DIR}/serial.log"
-    # Expose dist/ as a read-only FAT drive inside macOS Finder for easy kext updates
+    # Expose dist/ as a read-only USB FAT drive inside macOS Finder for easy kext access
     -drive id=KextShare,if=none,format=raw,read-only=on,file="fat:ro:${REPO_ROOT}/dist"
-    -device ide-hd,bus=sata.5,drive=KextShare
+    -device usb-storage,bus=xhci.0,drive=KextShare,removable=on
 )
 
 if [ -f "${VM_DIR}/BaseSystem.img" ]; then
