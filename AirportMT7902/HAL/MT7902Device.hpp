@@ -37,6 +37,7 @@ public:
     void shutdown();
     int startRadio();
     int stopRadio();
+    int setMacAddress(const uint8_t mac[6]);
     int suspend();
     int resume();
     int resetHardware();

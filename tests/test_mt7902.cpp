@@ -885,6 +885,199 @@ static void testUsbBluetoothFirmwareLoader() {
     TEST_CHECK(mockUsb.funcCtrlCalled, "BTMTK_WMT_FUNC_CTRL enable not sent");
 }
 
+static void testWclWpa2FourWayHandshakeEndToEnd(MockMT7902AsicBus &bus, MT7902Device &dev) {
+    printf("[TEST 8/8] Verifying in-kernel WPA2-PSK 4-Way EAPOL + RFC 3394 Key Wrap + Transition IE...\n");
+
+    // 1. RFC 3394 AES-128 Key Wrap / Unwrap test vector (128-bit KEK, 128-bit Key Data)
+    const uint8_t rfcKek[16] = {
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f
+    };
+    const uint8_t rfcPlain[16] = {
+        0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff
+    };
+    const uint8_t rfcExpectedWrap[24] = {
+        0x1f,0xa6,0x8b,0x0a,0x81,0x12,0xb4,0x47,0xae,0xf3,0x4b,0xd8,
+        0xfb,0x5a,0x7b,0x82,0x9d,0x3e,0x86,0x23,0x71,0xd2,0xcf,0xe5
+    };
+    uint8_t wrapped[32] = {};
+    size_t wrappedLen = 0;
+    TEST_CHECK(MT7902Wpa2::aesKeyWrap(rfcKek, rfcPlain, 16, wrapped, wrappedLen) && wrappedLen == 24,
+               "RFC 3394 aesKeyWrap failed");
+    TEST_CHECK(memcmp(wrapped, rfcExpectedWrap, 24) == 0, "RFC 3394 ciphertext mismatch");
+
+    uint8_t unwrapped[32] = {};
+    size_t unwrappedLen = 0;
+    TEST_CHECK(MT7902Wpa2::aesKeyUnwrap(rfcKek, wrapped, wrappedLen, unwrapped, unwrappedLen) && unwrappedLen == 16,
+               "RFC 3394 aesKeyUnwrap failed");
+    TEST_CHECK(memcmp(unwrapped, rfcPlain, 16) == 0, "RFC 3394 plaintext mismatch");
+
+    // 2. WPA2/WPA3 Transition-mode beacon IE downgrade (strip SAE + RSNXE)
+    uint8_t transIes[] = {
+        48, 24, 0x01, 0x00,
+        0x00, 0x0f, 0xac, 0x04,                         // Group CCMP
+        0x01, 0x00, 0x00, 0x0f, 0xac, 0x04,             // Pairwise CCMP
+        0x02, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x0f, 0xac, 0x08, // PSK + SAE
+        0x80, 0x00,                                     // MFPC=1, MFPR=0
+        244, 1, 0x20                                    // RSNXE (SAE H2E)
+    };
+    size_t downgradedLen = wcl::selectWPA2TransitionMode(transIes, sizeof(transIes));
+    TEST_CHECK(downgradedLen == 22 && transIes[0] == 48 && transIes[1] == 20 && transIes[14] == 1,
+               "selectWPA2TransitionMode failed (got len=%zu)", downgradedLen);
+
+    // 3. Full MT7902Sta WCL PMK association -> EAPOL Msg 1/2/3/4 -> hardware PTK/GTK -> kStaRun
+    MT7902Sta sta(dev);
+    MockStaListener listener;
+    sta.setListener(&listener);
+    TEST_CHECK(sta.setPower(true) == kOk, "sta.setPower failed");
+
+    const uint8_t apBssid[6] = { 0x06, 0x22, 0x33, 0x44, 0x55, 0x66 };
+    const char *ssidStr = "SequoiaWCLTest";
+    const uint8_t rsnIe[] = {
+        48, 20, 0x01, 0x00,
+        0x00, 0x0f, 0xac, 0x04,
+        0x01, 0x00, 0x00, 0x0f, 0xac, 0x04,
+        0x01, 0x00, 0x00, 0x0f, 0xac, 0x02,
+        0x00, 0x00
+    };
+    std::vector<uint8_t> beacon(36, 0);
+    putLe16(beacon.data() + 0, 0x0080);
+    memset(beacon.data() + 4, 0xff, 6);
+    memcpy(beacon.data() + 10, apBssid, 6);
+    memcpy(beacon.data() + 16, apBssid, 6);
+    putLe16(beacon.data() + 32, 100);
+    putLe16(beacon.data() + 34, 0x0431);
+    beacon.push_back(0);
+    beacon.push_back(static_cast<uint8_t>(strlen(ssidStr)));
+    beacon.insert(beacon.end(), ssidStr, ssidStr + strlen(ssidStr));
+    beacon.push_back(3); beacon.push_back(1); beacon.push_back(6);
+    beacon.insert(beacon.end(), rsnIe, rsnIe + sizeof(rsnIe));
+    inject80211FrameOnRx2(bus, beacon.data(), beacon.size(), 6, -42);
+    dev.serviceInterrupt();
+
+    const uint8_t pmk[32] = {
+        0xa1,0xa2,0xa3,0xa4,0xa5,0xa6,0xa7,0xa8,0xb1,0xb2,0xb3,0xb4,0xb5,0xb6,0xb7,0xb8,
+        0xc1,0xc2,0xc3,0xc4,0xc5,0xc6,0xc7,0xc8,0xd1,0xd2,0xd3,0xd4,0xd5,0xd6,0xd7,0xd8
+    };
+    AssocRequestParams areq;
+    areq.ssidLen = static_cast<uint8_t>(strlen(ssidStr));
+    memcpy(areq.ssid, ssidStr, areq.ssidLen);
+    memcpy(areq.bssid, apBssid, 6);
+    areq.hasBssid = true;
+    areq.authLower = 1;
+    areq.authUpper = 8;
+    memcpy(areq.pmk, pmk, 32);
+    areq.hasPmk = true;
+    TEST_CHECK(sta.associate(areq) == kOk, "WCL PMK associate failed");
+
+    uint8_t authResp[30] = {};
+    putLe16(authResp + 0, 0x00b0);
+    memcpy(authResp + 4, dev.capability().macAddr, 6);
+    memcpy(authResp + 10, apBssid, 6);
+    memcpy(authResp + 16, apBssid, 6);
+    putLe16(authResp + 26, 2);
+    inject80211FrameOnRx2(bus, authResp, sizeof(authResp), 6);
+    dev.serviceInterrupt();
+
+    uint8_t assocResp[32] = {};
+    putLe16(assocResp + 0, 0x0010);
+    memcpy(assocResp + 4, dev.capability().macAddr, 6);
+    memcpy(assocResp + 10, apBssid, 6);
+    memcpy(assocResp + 16, apBssid, 6);
+    putLe16(assocResp + 24, 0x0431);
+    putLe16(assocResp + 28, 0xc001);
+    inject80211FrameOnRx2(bus, assocResp, sizeof(assocResp), 6);
+    dev.serviceInterrupt();
+    TEST_CHECK(sta.link().state == kStaAssociated && !listener.linkUp, "Expected kStaAssociated");
+
+    // Simulate AP sending EAPOL-Key Msg 1/4 (Pairwise=1, Ack=1, Ver=2 -> keyInfo = 0x008a)
+    bus.capturedBand0TxPayloads.clear();
+    uint8_t anonce[32];
+    for (int i = 0; i < 32; ++i) anonce[i] = static_cast<uint8_t>(0x50 + i);
+
+    uint8_t msg1[14 + 99] = {};
+    memcpy(msg1 + 0, dev.capability().macAddr, 6);
+    memcpy(msg1 + 6, apBssid, 6);
+    putBe16(msg1 + 12, 0x888e);
+    uint8_t *e1 = msg1 + 14;
+    e1[0] = 2; e1[1] = 3; putBe16(e1 + 2, 95);
+    e1[4] = 2;
+    putBe16(e1 + 5, 0x008a); // KeyType=1, Ack=1, Ver=2
+    putBe16(e1 + 7, 16);
+    e1[16] = 1; // Replay counter = 1
+    memcpy(e1 + 17, anonce, 32);
+
+    ParsedRxFrame rxMeta = {};
+    rxMeta.valid = true;
+    rxMeta.is8023 = true;
+    rxMeta.rssi = -42;
+    sta.onRxEthernetFrame(msg1, sizeof(msg1), rxMeta);
+
+    TEST_CHECK(bus.capturedBand0TxPayloads.size() == 1, "STA did not transmit EAPOL Msg 2/4");
+    const auto &msg2Eth = bus.capturedBand0TxPayloads[0];
+    TEST_CHECK(msg2Eth.size() >= 14 + 99 && getBe16(msg2Eth.data() + 12) == 0x888e, "Invalid Msg 2/4 eth hdr");
+    const uint8_t *snonce = msg2Eth.data() + 14 + 17;
+
+    // Derive expected PTK on AP side and verify STA's Msg 2/4 MIC
+    Wpa2Ptk apPtk = {};
+    MT7902Wpa2::derivePtk(pmk, apBssid, dev.capability().macAddr, anonce, snonce, 2, apPtk);
+    std::vector<uint8_t> msg2Copy(msg2Eth.begin() + 14, msg2Eth.end());
+    uint8_t rxMic2[16], calcMic2[16];
+    memcpy(rxMic2, msg2Copy.data() + 81, 16);
+    memset(msg2Copy.data() + 81, 0, 16);
+    TEST_CHECK(MT7902Wpa2::computeKeyMic(apPtk.kck, 2, msg2Copy.data(), msg2Copy.size(), calcMic2) &&
+               memcmp(rxMic2, calcMic2, 16) == 0, "STA Msg 2/4 MIC verification failed on AP");
+
+    // Build AP EAPOL-Key Msg 3/4 with AES-Key-Wrapped GTK KDE + RSN IE
+    const uint8_t apGtk[16] = { 0x99,0x88,0x77,0x66,0x55,0x44,0x33,0x22,0x11,0x00,0xaa,0xbb,0xcc,0xdd,0xee,0xff };
+    uint8_t plainKeyData[48] = {};
+    size_t kdLen = 0;
+    memcpy(plainKeyData + kdLen, rsnIe, sizeof(rsnIe));
+    kdLen += sizeof(rsnIe);
+    // GTK KDE: dd 16 00 0f ac 01 <keyid=1> 00 <16B GTK>
+    plainKeyData[kdLen++] = 0xdd;
+    plainKeyData[kdLen++] = 22;
+    plainKeyData[kdLen++] = 0x00; plainKeyData[kdLen++] = 0x0f;
+    plainKeyData[kdLen++] = 0xac; plainKeyData[kdLen++] = 0x01;
+    plainKeyData[kdLen++] = 0x01; // KeyIdx = 1
+    plainKeyData[kdLen++] = 0x00;
+    memcpy(plainKeyData + kdLen, apGtk, 16);
+    kdLen += 16;
+    plainKeyData[kdLen++] = 0xdd; // IEEE 802.11i pad to multiple of 8 (44 -> 48)
+    while (kdLen % 8 != 0) plainKeyData[kdLen++] = 0x00;
+
+    uint8_t encKeyData[64] = {};
+    size_t encKdLen = 0;
+    TEST_CHECK(MT7902Wpa2::aesKeyWrap(apPtk.kek, plainKeyData, kdLen, encKeyData, encKdLen), "AP wrap failed");
+
+    std::vector<uint8_t> msg3(14 + 99 + encKdLen, 0);
+    memcpy(msg3.data() + 0, dev.capability().macAddr, 6);
+    memcpy(msg3.data() + 6, apBssid, 6);
+    putBe16(msg3.data() + 12, 0x888e);
+    uint8_t *e3 = msg3.data() + 14;
+    e3[0] = 2; e3[1] = 3; putBe16(e3 + 2, static_cast<uint16_t>(95 + encKdLen));
+    e3[4] = 2;
+    // KeyType=1(0x08) | Install=1(0x40) | Ack=1(0x80) | MIC=1(0x100) | Secure=1(0x200) | EncKeyData=1(0x1000) | Ver=2
+    putBe16(e3 + 5, 0x13ca);
+    putBe16(e3 + 7, 16);
+    e3[16] = 2; // Replay counter = 2
+    memcpy(e3 + 17, anonce, 32);
+    putBe16(e3 + 97, static_cast<uint16_t>(encKdLen));
+    memcpy(e3 + 99, encKeyData, encKdLen);
+    uint8_t mic3[16];
+    TEST_CHECK(MT7902Wpa2::computeKeyMic(apPtk.kck, 2, e3, 99 + encKdLen, mic3), "AP Msg 3 MIC failed");
+    memcpy(e3 + 81, mic3, 16);
+
+    bus.capturedBand0TxPayloads.clear();
+    sta.onRxEthernetFrame(msg3.data(), msg3.size(), rxMeta);
+
+    TEST_CHECK(bus.capturedBand0TxPayloads.size() == 1, "STA did not transmit EAPOL Msg 4/4");
+    TEST_CHECK(sta.link().ptkInstalled && sta.link().gtkInstalled, "PTK/GTK not installed after Msg 3/4");
+    TEST_CHECK(sta.link().state == kStaRun && listener.linkUp, "STA did not reach kStaRun after 4-way EAPOL");
+
+    (void)sta.disassociate(8);
+    dev.mac().releaseAllTokens();
+}
+
 int main() {
     printf("======================================================================\n");
     printf(" MediaTek MT7902 macOS Native Driver — Hardware Simulation Test Suite\n");
@@ -899,6 +1092,7 @@ int main() {
         testFullDeviceProbeFwBootAndDmaQuirks(mockBus, dev);
         testTxwiTokensTxFreeAndRxdDecoding(mockBus, dev);
         testStaScanWpa2AssocKeyInstallAndData(mockBus, dev);
+        testWclWpa2FourWayHandshakeEndToEnd(mockBus, dev);
         dev.shutdown();
     }
 
@@ -906,7 +1100,7 @@ int main() {
     testUsbBluetoothFirmwareLoader();
 
     printf("======================================================================\n");
-    printf(" [PASS] All 7 MT7902 test suites completed with 0 errors!\n");
+    printf(" [PASS] All 8 MT7902 test suites completed with 0 errors!\n");
     printf("======================================================================\n");
     return 0;
 }

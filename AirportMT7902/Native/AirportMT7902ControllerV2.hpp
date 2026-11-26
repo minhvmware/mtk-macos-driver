@@ -56,13 +56,19 @@ public:
     void *getFaultReporterFromDriver() override { return mFaultStream; }
 #endif
 
+    IOReturn enable(IONetworkInterface *netif) override;
+    IOReturn disable(IONetworkInterface *netif) override;
     IOReturn enable(IO80211SkywalkInterface *netif) MTK_V2_LEGACY_OVERRIDE;
     IOReturn disable(IO80211SkywalkInterface *netif) MTK_V2_LEGACY_OVERRIDE;
     IONetworkInterface *createInterface() override;
     bool configureInterface(IONetworkInterface *netif) override;
     UInt32 outputPacket(mbuf_t m, void *param) override;
+#ifdef __PRIVATE_SPI__
+    IOReturn outputStart(IONetworkInterface *interface, IOOptionBits options) override;
+#endif
 
     IOReturn getHardwareAddress(IOEthernetAddress *addrP) override;
+    IOReturn setHardwareAddress(const void *addrP, UInt32 addrBytes) override;
     IOReturn getPacketFilters(const OSSymbol *group, UInt32 *filters) const override;
     IOReturn setMulticastMode(bool active) override;
     IOReturn setPromiscuousMode(bool active) override;
@@ -102,9 +108,13 @@ public:
     void onDeauthenticated(uint16_t reasonCode, bool isDisassoc) override;
     void onAssociatedBeacon(const mt7902::ScannedBss &bss) override;
 
+    AirportMT7902EthernetInterface *bsdInterface() const { return mBsdIf; }
+
 private:
     static void interruptOccurred(OSObject *owner, IOInterruptEventSource *src, int count);
     static void watchdogFired(OSObject *owner, IOTimerEventSource *timer);
+    static IOReturn outputPacketGated(OSObject *owner, void *arg0, void *, void *, void *);
+    UInt32 sendLinearPacket(mbuf_t m);
     bool initCoreCaptureLogs();
     bool createMediumTables(const IONetworkMedium **primary);
     void releaseResources();
@@ -126,6 +136,8 @@ private:
     mt7902::MT7902IOKitBus *mBus = nullptr;
     mt7902::MT7902Device *mDevice = nullptr;
     mt7902::MT7902Sta *mSta = nullptr;
+    uint32_t mPowerState = 1;
+    bool mDriverAvailableReported = false;
 
     // CoreCapture & FaultReporter objects required by Sonoma/Sequoia/Tahoe IO80211Family
     CCPipe *mLogPipe = nullptr;

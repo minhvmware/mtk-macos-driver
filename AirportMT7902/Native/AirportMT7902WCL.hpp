@@ -253,7 +253,8 @@ static inline bool decodeScan(const void *buffer, size_t length, DecodedScanRequ
         const uint8_t *entry = p + 0x58 + static_cast<size_t>(i) * 12;
         uint32_t ch = rd32(entry + 4);
         uint32_t flags = rd32(entry + 8);
-        if (!ch || ch > 196 || (flags & 0x2000))
+        if (!ch || ch > 196 || (flags & 0x2000) ||
+            ((flags & 0x8) && ch > 14) || ((flags & 0x10) && ch <= 14))
             continue;
         out.channels[ch / 8] |= static_cast<uint8_t>(1U << (ch % 8));
     }
@@ -306,6 +307,115 @@ static inline bool appendNativeChannel(NativeChannelInfo &info, unsigned channel
     info.supports80MHz[idx] = supports80MHz ? 1 : 0;
     info.channelBitmap[idx] = 3U | (fiveGHz ? 4U : 0U) | (dfs ? 8U : 0U) | (passive ? 32U : 0U);
     return true;
+}
+
+enum class MacUpdate {
+    Invalid,
+    Busy,
+    Unchanged,
+    Apply,
+};
+
+static inline MacUpdate planMacUpdate(const uint8_t current[6], const uint8_t *next,
+                                      size_t len, bool busy) {
+    if (!current || !next || len != 6 || (next[0] & 1U))
+        return MacUpdate::Invalid;
+    uint8_t nonZero = 0;
+    for (size_t i = 0; i < 6; ++i)
+        nonZero |= next[i];
+    if (!nonZero)
+        return MacUpdate::Invalid;
+    if (memcmp(current, next, 6) == 0)
+        return MacUpdate::Unchanged;
+    return busy ? MacUpdate::Busy : MacUpdate::Apply;
+}
+
+// Rewrite WPA2/WPA3 transition-mode RSN IE (stripping SAE AKMs and RSNXE IE 244
+// when MFPR is not mandatory) so macOS WCL negotiates WPA2-PSK with a 32-byte PMK.
+static inline size_t selectWPA2TransitionMode(uint8_t *ies, size_t len) {
+    if (!ies || len < 2)
+        return len;
+
+    bool strippedSae = false;
+    size_t outPos = 0;
+    size_t inPos = 0;
+
+    while (inPos + 2 <= len) {
+        uint8_t id = ies[inPos];
+        uint8_t elen = ies[inPos + 1];
+        if (inPos + 2 + elen > len)
+            break;
+
+        const uint8_t *ebody = ies + inPos + 2;
+        bool rewritten = false;
+
+        if (id == 48 && elen >= 14 && rd16(ebody) == 1) {
+            size_t p = 6; // version(2) + group(4)
+            if (p + 2 <= elen) {
+                uint16_t pcnt = rd16(ebody + p);
+                p += 2;
+                if (p + static_cast<size_t>(pcnt) * 4 + 2 <= elen) {
+                    size_t akmCntOfs = p + static_cast<size_t>(pcnt) * 4;
+                    uint16_t acnt = rd16(ebody + akmCntOfs);
+                    size_t akmListOfs = akmCntOfs + 2;
+                    size_t afterAkmOfs = akmListOfs + static_cast<size_t>(acnt) * 4;
+                    if (acnt >= 2 && afterAkmOfs <= elen) {
+                        uint16_t rsnCap = (afterAkmOfs + 2 <= elen) ? rd16(ebody + afterAkmOfs) : 0;
+                        bool mfpr = (rsnCap & 0x0040U) != 0;
+                        bool hasPsk = false;
+                        bool hasSae = false;
+                        static constexpr uint8_t kRsnOui[3] = { 0x00, 0x0f, 0xac };
+                        for (uint16_t i = 0; i < acnt; ++i) {
+                            const uint8_t *s = ebody + akmListOfs + static_cast<size_t>(i) * 4;
+                            if (memcmp(s, kRsnOui, 3) == 0) {
+                                if (s[3] == 2 || s[3] == 6) hasPsk = true;
+                                if (s[3] == 8 || s[3] == 9) hasSae = true;
+                            }
+                        }
+                        if (hasPsk && hasSae && !mfpr) {
+                            uint8_t newRsn[257] = {};
+                            memcpy(newRsn, ebody, akmCntOfs);
+                            uint16_t kept = 0;
+                            for (uint16_t i = 0; i < acnt; ++i) {
+                                const uint8_t *s = ebody + akmListOfs + static_cast<size_t>(i) * 4;
+                                bool isSae = (memcmp(s, kRsnOui, 3) == 0 && (s[3] == 8 || s[3] == 9));
+                                if (!isSae) {
+                                    memcpy(newRsn + akmListOfs + static_cast<size_t>(kept) * 4, s, 4);
+                                    ++kept;
+                                }
+                            }
+                            newRsn[akmCntOfs] = static_cast<uint8_t>(kept & 0xffU);
+                            newRsn[akmCntOfs + 1] = static_cast<uint8_t>((kept >> 8) & 0xffU);
+                            size_t newBodyLen = akmListOfs + static_cast<size_t>(kept) * 4;
+                            if (afterAkmOfs + 2 <= elen) {
+                                uint16_t cleanCap = static_cast<uint16_t>(rsnCap & ~0x00c0U);
+                                newRsn[newBodyLen++] = static_cast<uint8_t>(cleanCap & 0xffU);
+                                newRsn[newBodyLen++] = static_cast<uint8_t>((cleanCap >> 8) & 0xffU);
+                            }
+                            ies[outPos++] = 48;
+                            ies[outPos++] = static_cast<uint8_t>(newBodyLen);
+                            memcpy(ies + outPos, newRsn, newBodyLen);
+                            outPos += newBodyLen;
+                            rewritten = true;
+                            strippedSae = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!rewritten) {
+            // Strip RSNXE (244) when downgrading transition BSS so WCL doesn't expect SAE H2E
+            if (!(strippedSae && id == 244)) {
+                if (outPos != inPos)
+                    memmove(ies + outPos, ies + inPos, 2 + elen);
+                outPos += 2 + elen;
+            }
+        }
+        inPos += 2 + elen;
+    }
+
+    return outPos;
 }
 
 } // namespace wcl

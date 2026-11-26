@@ -109,12 +109,13 @@ IOService *MT7902BluetoothFirmware::probe(IOService *provider, SInt32 *score) {
     if (!usbDev)
         return nullptr;
 
-    // Avoid re-probing if we already patched this USB device instance
-    if (OSDynamicCast(OSBoolean, provider->getProperty("MT7902BTFirmwareLoaded")) == kOSBooleanTrue)
-        return nullptr;
-
     return this;
 }
+
+static IOPMPowerState kBtPowerStates[2] = {
+    { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    { 1, kIOPMDeviceUsable, kIOPMPowerOn, kIOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0 }
+};
 
 bool MT7902BluetoothFirmware::start(IOService *provider) {
     if (!super::start(provider))
@@ -126,28 +127,45 @@ bool MT7902BluetoothFirmware::start(IOService *provider) {
         return false;
     }
 
-    if (!usbDev->open(this)) {
-        MTK_BT_ERR("Failed to open IOUSBHostDevice for MT7902 Bluetooth");
-        super::stop(provider);
-        return false;
+    PMinit();
+    registerPowerDriver(this, kBtPowerStates, 2);
+    provider->joinPMtree(this);
+    makeUsable();
+
+    if (OSDynamicCast(OSBoolean, usbDev->getProperty("MT7902BTFirmwareLoaded")) != kOSBooleanTrue) {
+        if (!usbDev->open(this)) {
+            MTK_BT_ERR("Failed to open IOUSBHostDevice for MT7902 Bluetooth");
+            PMstop();
+            super::stop(provider);
+            return false;
+        }
+
+        IOUSBHostBtTransport transport(this, usbDev);
+        int err = mt7902::bt::MT7902BtLoader::setupDevice(transport);
+        if (err == mt7902::kOk) {
+            usbDev->setProperty("MT7902BTFirmwareLoaded", kOSBooleanTrue);
+            usbDev->setProperty("FirmwareLoaded", kOSBooleanTrue);
+        }
+
+        usbDev->close(this);
     }
 
-    IOUSBHostBtTransport transport(this, usbDev);
-    int err = mt7902::bt::MT7902BtLoader::setupDevice(transport);
-    if (err == mt7902::kOk) {
-        provider->setProperty("MT7902BTFirmwareLoaded", kOSBooleanTrue);
-    }
-
-    usbDev->close(this);
-    super::stop(provider);
-
-    // Return false after uploading firmware so macOS's native Bluetooth USB
-    // transport (+ BlueToolFixup.kext) claims the initialized HCI controller.
-    return false;
+    // Rename the composite USB node to match Apple's expected USB HCI controller name
+    // so BlueToolFixup + macOS user-space bluetoothd attach to the initialized HCI endpoints.
+    usbDev->setName("Bluetooth USB Host Controller");
+    registerService();
+    return true;
 }
 
 void MT7902BluetoothFirmware::stop(IOService *provider) {
+    PMstop();
     super::stop(provider);
+}
+
+IOReturn MT7902BluetoothFirmware::setPowerState(unsigned long powerStateOrdinal, IOService *whatDevice) {
+    (void)powerStateOrdinal;
+    (void)whatDevice;
+    return IOPMAckImplied;
 }
 
 #endif // KERNEL

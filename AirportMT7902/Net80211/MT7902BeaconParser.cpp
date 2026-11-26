@@ -76,6 +76,10 @@ bool MT7902ScanCache::parseBeaconOrProbeResp(const uint8_t *frame, size_t len,
     memcpy(out.ies, ies, ieTotal);
     out.ieLen = static_cast<uint16_t>(ieTotal);
 
+    size_t rawCopy = len > sizeof(out.rawFrame) ? sizeof(out.rawFrame) : len;
+    memcpy(out.rawFrame, frame, rawCopy);
+    out.rawFrameLen = static_cast<uint16_t>(rawCopy);
+
     size_t pos = 0;
     while (pos + 2 <= ieTotal) {
         uint8_t id = ies[pos];

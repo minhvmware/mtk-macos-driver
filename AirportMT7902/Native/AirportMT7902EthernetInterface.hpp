@@ -11,6 +11,7 @@ extern "C" {
 #include <net/bpf.h>
 }
 #include <Airport/Apple80211.h>
+#include <IOKit/IOCommandGate.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/network/IOEthernetInterface.h>
 
@@ -29,6 +30,9 @@ public:
     bool setLinkState(IO80211LinkState state);
 
 private:
+#ifdef AIRPORT_WCL
+    static IOReturn prepareBSDGated(OSObject *, void *arg0, void *, void *, void *);
+#endif
     IO80211SkywalkInterface *mSkywalkIf = nullptr;
     bool mAttached = false;
 };

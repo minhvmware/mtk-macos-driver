@@ -27,6 +27,7 @@ public:
     virtual bool init(IOService *provider) MTK_SKYWALK_OVERRIDE;
 
     // Event notifications from AirportMT7902 (IStaEventListener)
+    void notifyDriverAvailable(bool ready);
     void notifyScanDone();
     void notifyBssDiscovered(const mt7902::ScannedBss &bss);
     void notifyAssocDone(bool success, uint16_t statusCode);
@@ -146,7 +147,7 @@ public:
     virtual IOReturn getWCL_FW_HOT_CHANNELS(apple80211_fw_hot_channels *) override { return kIOReturnUnsupported; }
     virtual IOReturn getWCL_GET_TX_BLANKING_STATUS(unsigned int *) override { return kIOReturnUnsupported; }
     virtual IOReturn getSSID_TRANSITION_SUPPORT(apple80211_ssid_transition_feature_enabled *) MTK_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
-    virtual IOReturn getWCL_VALID_CHANNEL_COUNT(unsigned long *) MTK_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
+    virtual IOReturn getWCL_VALID_CHANNEL_COUNT(unsigned long *) MTK_SKYWALK_OVERRIDE;
     virtual IOReturn getWCL_P2P_STATUS_FOR_SCAN(p2pStatusForScan *) MTK_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getP2P_STEERING_METRIC(apple80211_p2p_steering_metrics *) MTK_SKYWALK_OVERRIDE { return kIOReturnUnsupported; }
     virtual IOReturn getRSN_XE(apple80211_rsn_xe_data *) override { return kIOReturnUnsupported; }
@@ -266,26 +267,26 @@ public:
     IOReturn getWCL_BSS_INFO(apple80211_beacon_msg *) override;
     IOReturn getWCL_EXTENDED_BSS_INFO(apple80211_extended_bss_info *) override;
     IOReturn getWCL_TRAFFIC_COUNTERS(apple80211_wcl_traffic_counters *) override;
-    IOReturn getWCL_LOW_LATENCY_INFO(apple80211_low_latency_info *) override { return kIOReturnUnsupported; }
+    IOReturn getWCL_LOW_LATENCY_INFO(apple80211_low_latency_info *) override;
     IOReturn getBEACON_INFO(apple80211_beacon_info_t *) override;
 
     IOReturn setWCL_SCAN_REQ(apple80211ScanRequest *) override;
     IOReturn setWCL_SCAN_ABORT(void *) override;
     IOReturn setWCL_ASSOCIATE(apple80211AssocCandidates *) override;
     IOReturn setWCL_LEAVE_NETWORK(apple80211_leave_network *) override;
-    IOReturn setWCL_LINK_STATE_UPDATE(apple80211_wcl_update_link_state *) override { return kIOReturnSuccess; }
+    IOReturn setWCL_LINK_STATE_UPDATE(apple80211_wcl_update_link_state *) override;
     IOReturn setWCL_SET_SCAN_HOME_AWAY_TIME(scanHomeAndAwayTime *) override { return kIOReturnSuccess; }
     IOReturn setWCL_UPDATE_FAST_LANE(apple80211_fastlane *) override { return kIOReturnSuccess; }
     IOReturn setCLEAR_PMKSA_CACHE(void *) override { return kIOReturnSuccess; }
 
 #if __IO80211_TARGET == __MAC_15_2
     IOReturn setWCL_JOIN_ABORT(void *) override;
-    IOReturn setMacAddress(ether_addr &) override { return kIOReturnSuccess; }
+    IOReturn setMacAddress(ether_addr &) override;
     IOReturn getWIFI_BT_5G_POLICY(apple80211_wifi_bt_5g_policy_t *) override { return kIOReturnUnsupported; }
     IOReturn setWIFI_BT_5G_POLICY(apple80211_wifi_bt_5g_policy_t *) override { return kIOReturnUnsupported; }
 #else
     IOReturn setWCL_JOIN_ABORT(apple80211_wcl_abort_join *) override;
-    IOReturn setMacAddress(mloAddrArray &) override { return kIOReturnSuccess; }
+    IOReturn setMacAddress(mloAddrArray &) override;
     IOReturn getSMARTCCA_OPMODE(apple80211_smartcca_opmode *) override { return kIOReturnUnsupported; }
     IOReturn getLQM_STATISTICS(apple80211_lqm_statistics *) override { return kIOReturnUnsupported; }
     IOReturn getDEVICE_ORIENTATION(apple80211_device_orientation *) override { return kIOReturnUnsupported; }
@@ -374,11 +375,25 @@ public:
 #endif
 
 private:
+#ifdef AIRPORT_WCL
+    void postWclMessage(uint32_t msgId, void *data, size_t len);
+    void populateWclBeaconBuffer(const mt7902::ScannedBss &bss, uint8_t *buf, size_t &outTotalLen);
+    void finishWclJoin(uint16_t status, uint16_t reason, IOReturn driverStatus);
+#endif
     AirportMT7902 *mController = nullptr;
     mt7902::MT7902Sta *mSta = nullptr;
 #ifdef AIRPORT_WCL
     uint8_t mWclBeaconMsg[sizeof(mt7902::wcl::BeaconMetadata) + 0x800] = {};
+    uint8_t mWclBeaconInfo[4 + 0x800] = {};
+    uint8_t mWclJoinBssid[6] = {};
+    uint32_t mWclAssociatedBeacons = 0;
+    bool mWclScanPending = false;
+    bool mWclJoinPending = false;
+    bool mWclAssocNotified = false;
     bool mWclFirstBeaconSent = false;
+    bool mWclPortAuthorized = false;
+    bool mWclBssValid = false;
+    bool mWclLinkIndicated = false;
 #endif
 };
 

@@ -4,12 +4,14 @@
 #if defined(KERNEL) && defined(IO80211FAMILY_V2)
 
 #include "AirportMT7902ControllerV2.hpp"
+#include <net/if.h>
 #include <sys/kpi_mbuf.h>
 
 #define super IO80211Controller
 OSDefineMetaClassAndStructors(AirportMT7902, IO80211Controller);
 
 IO80211WorkQueue *gMT7902WorkQueue = nullptr;
+IOCommandGate *gMT7902CommandGate = nullptr;
 
 static IOPMPowerState kV2PowerStates[2] = {
     { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -17,6 +19,8 @@ static IOPMPowerState kV2PowerStates[2] = {
 };
 
 bool AirportMT7902::init(OSDictionary *properties) {
+    mPowerState = 1;
+    mDriverAvailableReported = false;
     return super::init(properties);
 }
 
@@ -143,7 +147,7 @@ bool AirportMT7902::getLogPipes(CCPipe **logPipe, CCPipe **dataPipe, CCPipe **sn
 }
 
 bool AirportMT7902::createMediumTables(const IONetworkMedium **primary) {
-    mMediumDict = OSDictionary::withCapacity(2);
+    mMediumDict = OSDictionary::withCapacity(3);
     if (!mMediumDict)
         return false;
     IONetworkMedium *autoMed = IONetworkMedium::medium(kIOMediumIEEE80211Auto, 1200000000ULL);
@@ -152,12 +156,24 @@ bool AirportMT7902::createMediumTables(const IONetworkMedium **primary) {
     IONetworkMedium::addMedium(mMediumDict, autoMed);
     if (primary) *primary = autoMed;
     autoMed->release();
+
+    if (IONetworkMedium *ieeeMed = IONetworkMedium::medium(kIOMediumIEEE80211, 54000000ULL)) {
+        IONetworkMedium::addMedium(mMediumDict, ieeeMed);
+        ieeeMed->release();
+    }
+    if (IONetworkMedium *noneMed = IONetworkMedium::medium(kIOMediumIEEE80211None, 0)) {
+        IONetworkMedium::addMedium(mMediumDict, noneMed);
+        noneMed->release();
+    }
     return publishMediumDictionary(mMediumDict);
 }
 
 bool AirportMT7902::start(IOService *provider) {
     UInt8 builtIn = 0;
-    setProperty("built-in", OSData::withBytes(&builtIn, sizeof(builtIn)));
+    if (OSData *biData = OSData::withBytes(&builtIn, sizeof(builtIn))) {
+        setProperty("built-in", biData);
+        biData->release();
+    }
     setProperty("DriverKitDriver", kOSBooleanFalse);
 
     createWorkQueue();
@@ -196,6 +212,8 @@ bool AirportMT7902::start(IOService *provider) {
         releaseResources();
         return false;
     }
+    mCommandGate->enable();
+    gMT7902CommandGate = mCommandGate;
 
     int msiIndex = 0;
     for (int idx = 0; ; ++idx) {
@@ -221,7 +239,7 @@ bool AirportMT7902::start(IOService *provider) {
         mWatchdogTimer->setTimeoutMS(1000);
 
     const IONetworkMedium *primary = nullptr;
-    if (!createMediumTables(&primary) || !setCurrentMedium(primary)) {
+    if (!createMediumTables(&primary) || !setCurrentMedium(primary) || !setSelectedMedium(primary)) {
         releaseResources();
         return false;
     }
@@ -259,7 +277,6 @@ bool AirportMT7902::start(IOService *provider) {
         return false;
     }
 
-#ifdef AIRPORT_WCL
     mProtoIf->mExpansionData->fRegistrationInfo =
         static_cast<IOSkywalkNetworkInterface::RegistrationInfo *>(
             IOMalloc(sizeof(IOSkywalkNetworkInterface::RegistrationInfo)));
@@ -279,6 +296,17 @@ bool AirportMT7902::start(IOService *provider) {
         releaseResources();
         return false;
     }
+
+    // Bring radio up immediately at boot so hardware is ready for WCL / Apple80211
+    (void)mSta->setPower(true);
+    mPowerState = 1;
+    setLinkStatus(kIONetworkLinkValid);
+
+#ifdef AIRPORT_WCL
+    if (mBsdIf)
+        mBsdIf->registerService();
+    mProtoIf->notifyDriverAvailable(true);
+    mDriverAvailableReported = true;
 #endif
 
     registerService();
@@ -287,6 +315,10 @@ bool AirportMT7902::start(IOService *provider) {
 }
 
 void AirportMT7902::stop(IOService *provider) {
+#ifdef AIRPORT_WCL
+    if (mProtoIf)
+        mProtoIf->notifyDriverAvailable(false);
+#endif
     if (mBsdIf) {
         IONetworkController::detachInterface(mBsdIf, true);
         OSSafeReleaseNULL(mBsdIf);
@@ -325,6 +357,8 @@ void AirportMT7902::releaseResources() {
             OSSafeReleaseNULL(mInterruptSrc);
         }
         if (mCommandGate) {
+            if (gMT7902CommandGate == mCommandGate)
+                gMT7902CommandGate = nullptr;
             gMT7902WorkQueue->removeEventSource(mCommandGate);
             OSSafeReleaseNULL(mCommandGate);
         }
@@ -347,18 +381,46 @@ void AirportMT7902::releaseResources() {
     OSSafeReleaseNULL(mMediumDict);
 }
 
-IOReturn AirportMT7902::enable(IO80211SkywalkInterface *netif) {
+IOReturn AirportMT7902::enable(IONetworkInterface *netif) {
     (void)netif;
-    if (!mSta) return kIOReturnNotReady;
-    if (mSta->setPower(true) != mt7902::kOk)
-        return kIOReturnError;
+    if (!mSta)
+        return kIOReturnNotReady;
+    if (mPowerState && !mSta->isPoweredOn()) {
+        if (mSta->setPower(true) != mt7902::kOk)
+            return kIOReturnError;
+    }
+#ifdef AIRPORT_WCL
+    if (mProtoIf && mSta->isPoweredOn()) {
+        mProtoIf->notifyDriverAvailable(true);
+        mDriverAvailableReported = true;
+    }
+#endif
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportMT7902::disable(IONetworkInterface *netif) {
+    (void)netif;
     setLinkStatus(kIONetworkLinkValid);
     return kIOReturnSuccess;
 }
 
-IOReturn AirportMT7902::disable(IO80211SkywalkInterface *netif) {
+IOReturn AirportMT7902::enable(IO80211SkywalkInterface *netif) {
+#ifndef AIRPORT_WCL
+    super::enable(netif);
+#else
     (void)netif;
-    if (mSta) (void)mSta->setPower(false);
+#endif
+    if (mCommandGate)
+        mCommandGate->enable();
+    return enable(static_cast<IONetworkInterface *>(mBsdIf));
+}
+
+IOReturn AirportMT7902::disable(IO80211SkywalkInterface *netif) {
+#ifndef AIRPORT_WCL
+    super::disable(netif);
+#else
+    (void)netif;
+#endif
     setLinkStatus(kIONetworkLinkValid);
     return kIOReturnSuccess;
 }
@@ -376,16 +438,32 @@ IONetworkInterface *AirportMT7902::createInterface() {
 bool AirportMT7902::configureInterface(IONetworkInterface *netif) {
     if (!super::configureInterface(netif))
         return false;
-    IONetworkData *data = netif->getNetworkData(kIONetworkStatsKey);
+    IONetworkData *data = netif->getParameter(kIONetworkStatsKey);
     if (data)
         mNetStats = static_cast<IONetworkStats *>(const_cast<void *>(data->getBuffer()));
+#ifdef __PRIVATE_SPI__
+#ifdef AIRPORT_WCL
+    if (netif->configureOutputPullModel(
+            256, kIONetworkWorkLoopSynchronous, 0,
+            IOEthernetInterface::kOutputPacketSchedulingModelNormal, 0) != kIOReturnSuccess)
+        return false;
+#else
+    netif->configureOutputPullModel(
+        256, 0, 0, IOEthernetInterface::kOutputPacketSchedulingModelNormal, 0);
+#endif
+#endif
     return true;
 }
 
-UInt32 AirportMT7902::outputPacket(mbuf_t m, void *param) {
-    (void)param;
+UInt32 AirportMT7902::sendLinearPacket(mbuf_t m) {
     if (!m || !mSta) {
-        if (m) freePacket(m);
+        if (m && mbuf_type(m) != MBUF_TYPE_FREE)
+            freePacket(m);
+        return kIOReturnOutputDropped;
+    }
+    if (mbuf_type(m) == MBUF_TYPE_FREE || !(mbuf_flags(m) & MBUF_PKTHDR)) {
+        if (mbuf_type(m) != MBUF_TYPE_FREE)
+            freePacket(m);
         return kIOReturnOutputDropped;
     }
     size_t pktLen = mbuf_pkthdr_len(m);
@@ -408,9 +486,68 @@ UInt32 AirportMT7902::outputPacket(mbuf_t m, void *param) {
     return kIOReturnOutputSuccess;
 }
 
+IOReturn AirportMT7902::outputPacketGated(OSObject *owner, void *arg0, void *, void *, void *) {
+    auto *self = static_cast<AirportMT7902 *>(owner);
+    return self->sendLinearPacket(static_cast<mbuf_t>(arg0));
+}
+
+UInt32 AirportMT7902::outputPacket(mbuf_t m, void *param) {
+    (void)param;
+#ifdef AIRPORT_WCL
+    if (gMT7902WorkQueue && !gMT7902WorkQueue->inGate() && mCommandGate) {
+        IOReturn st = mCommandGate->runAction(outputPacketGated, m);
+        if (st != kIOReturnOutputSuccess && st != kIOReturnOutputDropped) {
+            if (m && mbuf_type(m) != MBUF_TYPE_FREE)
+                freePacket(m);
+            return kIOReturnOutputDropped;
+        }
+        return st;
+    }
+#endif
+    return sendLinearPacket(m);
+}
+
+#ifdef __PRIVATE_SPI__
+IOReturn AirportMT7902::outputStart(IONetworkInterface *interface, IOOptionBits options) {
+    (void)options;
+    if (!interface)
+        return kIOReturnBadArgument;
+    mbuf_t m = nullptr;
+    if (interface->dequeueOutputPackets(32, &m) != kIOReturnSuccess || !m)
+        return kIOReturnSuccess;
+    while (m) {
+        mbuf_t next = mbuf_nextpkt(m);
+        mbuf_setnextpkt(m, nullptr);
+        sendLinearPacket(m);
+        m = next;
+    }
+    return kIOReturnSuccess;
+}
+#endif
+
 IOReturn AirportMT7902::getHardwareAddress(IOEthernetAddress *addrP) {
     if (!addrP || !mDevice) return kIOReturnBadArgument;
     memcpy(addrP->bytes, mDevice->capability().macAddr, 6);
+    return kIOReturnSuccess;
+}
+
+IOReturn AirportMT7902::setHardwareAddress(const void *addrP, UInt32 addrBytes) {
+    if (!addrP || addrBytes != kIOEthernetAddressSize || !mDevice)
+        return kIOReturnBadArgument;
+    const uint8_t *addr = static_cast<const uint8_t *>(addrP);
+    auto action = mt7902::wcl::planMacUpdate(mDevice->capability().macAddr, addr, addrBytes, false);
+    if (action == mt7902::wcl::MacUpdate::Invalid)
+        return kIOReturnBadArgument;
+    if (mBsdIf && mBsdIf->getIfnet()) {
+        if (ifnet_set_lladdr(mBsdIf->getIfnet(), addr, addrBytes) != 0)
+            return kIOReturnError;
+        mBsdIf->setProperty(kIOMACAddress, const_cast<uint8_t *>(addr), addrBytes);
+    }
+    if (action == mt7902::wcl::MacUpdate::Apply) {
+        MTK_LOG("Updating MT7902 MAC address to %02x:%02x:%02x:%02x:%02x:%02x",
+                addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+        (void)mDevice->setMacAddress(addr);
+    }
     return kIOReturnSuccess;
 }
 
@@ -456,6 +593,19 @@ IOReturn AirportMT7902::getCARD_CAPABILITIES(IO80211SkywalkInterface *, apple802
     if (!cap) return kIOReturnBadArgument;
     memset(cap, 0, sizeof(*cap));
     cap->version = APPLE80211_VERSION;
+#ifdef AIRPORT_WCL
+    cap->capabilities[0] = (1U << APPLE80211_CAP_AES_CCM) | (1U << APPLE80211_CAP_TKIP);
+    cap->capabilities[1] = (1U << (APPLE80211_CAP_SHSLOT - 8)) |
+                           (1U << (APPLE80211_CAP_SHPREAMBLE - 8)) |
+                           (1U << (APPLE80211_CAP_WPA2 - 8)) |
+                           (1U << (APPLE80211_CAP_TKIPMIC - 8));
+    cap->capabilities[2] = (1U << (APPLE80211_CAP_WME - 16)) |
+                           (1U << (APPLE80211_CAP_SHORT_GI_40MHZ - 16)) |
+                           (1U << (APPLE80211_CAP_SHORT_GI_20MHZ - 16));
+    cap->capabilities[5] = 0x40; // Scan completion events required by WCL
+    if (mDevice && mDevice->capability().supportsHe)
+        cap->capabilities[17] |= 0x80; // 802.11ax HE capability bit for WCL
+#else
     uint32_t caps = (1U << APPLE80211_CAP_WEP) | (1U << APPLE80211_CAP_TKIP) |
                     (1U << APPLE80211_CAP_AES) | (1U << APPLE80211_CAP_AES_CCM) |
                     (1U << APPLE80211_CAP_WPA) | (1U << APPLE80211_CAP_WPA1) |
@@ -463,8 +613,12 @@ IOReturn AirportMT7902::getCARD_CAPABILITIES(IO80211SkywalkInterface *, apple802
                     (1U << APPLE80211_CAP_SHORT_GI_20MHZ) | (1U << APPLE80211_CAP_SHORT_GI_40MHZ);
     cap->capabilities[0] = static_cast<uint8_t>(caps & 0xffU);
     cap->capabilities[1] = static_cast<uint8_t>((caps >> 8) & 0xffU);
-    cap->capabilities[2] = static_cast<uint8_t>((caps >> 16) & 0xffU);
-    cap->capabilities[3] = static_cast<uint8_t>((caps >> 24) & 0xffU);
+    cap->capabilities[2] = 0xffU;
+    cap->capabilities[3] = 0x2bU;
+    cap->capabilities[5] = 0x40U;
+    cap->capabilities[6] = 0x8cU;
+    *reinterpret_cast<uint16_t *>(&cap->capabilities[8]) = 0x0201U;
+#endif
     return kIOReturnSuccess;
 }
 
@@ -472,15 +626,36 @@ IOReturn AirportMT7902::getPOWER(IO80211SkywalkInterface *, apple80211_power_dat
     if (!pd || !mSta) return kIOReturnBadArgument;
     memset(pd, 0, sizeof(*pd));
     pd->version = APPLE80211_VERSION;
-    pd->num_radios = 1;
-    pd->power_state[0] = mSta->isPoweredOn() ? APPLE80211_POWER_ON : APPLE80211_POWER_OFF;
+    pd->num_radios = 4;
+    uint32_t state = mSta->isPoweredOn() ? APPLE80211_POWER_ON : APPLE80211_POWER_OFF;
+    pd->power_state[0] = state;
+    pd->power_state[1] = state;
+    pd->power_state[2] = state;
+    pd->power_state[3] = state;
     return kIOReturnSuccess;
 }
 
 IOReturn AirportMT7902::setPOWER(IO80211SkywalkInterface *, apple80211_power_data *pd) {
     if (!pd || !mSta) return kIOReturnBadArgument;
     bool on = (pd->num_radios > 0 && pd->power_state[0] != APPLE80211_POWER_OFF);
-    return (mSta->setPower(on) == mt7902::kOk) ? kIOReturnSuccess : kIOReturnError;
+    MTK_LOG("setPOWER: num_radios=%u state=%u -> on=%d", pd->num_radios, pd->power_state[0], on);
+    bool wasOn = mSta->isPoweredOn();
+    int err = mSta->setPower(on);
+    if (err != mt7902::kOk)
+        return kIOReturnError;
+    mPowerState = on ? 1 : 0;
+#ifdef AIRPORT_WCL
+    if (mProtoIf) {
+        if (on && (!wasOn || !mDriverAvailableReported)) {
+            mProtoIf->notifyDriverAvailable(true);
+            mDriverAvailableReported = true;
+        } else if (!on && wasOn) {
+            mProtoIf->notifyDriverAvailable(false);
+            mDriverAvailableReported = false;
+        }
+    }
+#endif
+    return kIOReturnSuccess;
 }
 
 IOReturn AirportMT7902::getCOUNTRY_CODE(IO80211SkywalkInterface *, apple80211_country_code_data *cc) {
@@ -493,7 +668,8 @@ IOReturn AirportMT7902::getCOUNTRY_CODE(IO80211SkywalkInterface *, apple80211_co
 
 IOReturn AirportMT7902::setCOUNTRY_CODE(IO80211SkywalkInterface *, apple80211_country_code_data *cc) {
     if (!cc || !mSta) return kIOReturnBadArgument;
-    (void)mSta->setCountryCode(reinterpret_cast<const char *>(cc->cc));
+    if (cc->cc[0] != 'x' && cc->cc[0] != 'X' && cc->cc[0] != 0)
+        (void)mSta->setCountryCode(reinterpret_cast<const char *>(cc->cc));
     return kIOReturnSuccess;
 }
 
@@ -553,8 +729,22 @@ void AirportMT7902::onLinkStateChanged(bool up) {
     if (up) {
         UInt64 speed = static_cast<UInt64>(mSta->link().txRateMbps) * 1000000ULL;
         setLinkStatus(kIONetworkLinkValid | kIONetworkLinkActive, getCurrentMedium(), speed);
+#ifdef __PRIVATE_SPI__
+        if (mBsdIf)
+            mBsdIf->startOutputThread();
+#endif
+        if (mBsdIf)
+            mBsdIf->setLinkState(kIO80211NetworkLinkUp);
     } else {
         setLinkStatus(kIONetworkLinkValid, getCurrentMedium(), 0);
+#ifdef __PRIVATE_SPI__
+        if (mBsdIf) {
+            mBsdIf->stopOutputThread();
+            mBsdIf->flushOutputQueue();
+        }
+#endif
+        if (mBsdIf)
+            mBsdIf->setLinkState(kIO80211NetworkLinkDown);
     }
     if (mProtoIf) mProtoIf->notifyLinkChanged(up);
 }

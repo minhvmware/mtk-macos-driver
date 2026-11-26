@@ -18,6 +18,7 @@ HOST_SRCS := \
 	AirportMT7902/HAL/MT7902Device.cpp \
 	AirportMT7902/Net80211/MT7902Channels.cpp \
 	AirportMT7902/Net80211/MT7902BeaconParser.cpp \
+	AirportMT7902/Net80211/MT7902Wpa2.cpp \
 	AirportMT7902/Net80211/MT7902Sta.cpp \
 	AirportMT7902/Native/MT7902IOKitBus.cpp \
 	AirportMT7902/Native/MT7902PCIWrapper.cpp \

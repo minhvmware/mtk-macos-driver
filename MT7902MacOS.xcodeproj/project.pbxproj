@@ -15,6 +15,7 @@
 		7C6CBED9373318780EC4E34D /* MT7902Device.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FB08AA5739723554CAB394A7 /* MT7902Device.cpp */; };
 		40E0A38AF7C9EB5B46AE3013 /* MT7902Channels.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */; };
 		A84D0DC4B76C3E1B03B0E66B /* MT7902BeaconParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA9C5BDFBEAAAA86E3A52D33 /* MT7902BeaconParser.cpp */; };
+		BB70485A7573865AFDE99819 /* MT7902Wpa2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = ED3D5423DBFF8AFC0A2B34EF /* MT7902Wpa2.cpp */; };
 		F8ED923F58F7D4A6908A846F /* MT7902Sta.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */; };
 		317D88EC66FC8459A3E35956 /* MT7902IOKitBus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B27EF28D146264BD1B584BA8 /* MT7902IOKitBus.cpp */; };
 		238C797CC4BFB6C1BC77727A /* MT7902PCIWrapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2EDEA62F662CC7AB04BC1E /* MT7902PCIWrapper.cpp */; };
@@ -32,6 +33,7 @@
 		F80EFAB56011C0648BDFB693 /* MT7902Device.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FB08AA5739723554CAB394A7 /* MT7902Device.cpp */; };
 		9123043AD578AD09BDEF4CFC /* MT7902Channels.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */; };
 		8DDED2717A61BE7EF6FC5CF9 /* MT7902BeaconParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA9C5BDFBEAAAA86E3A52D33 /* MT7902BeaconParser.cpp */; };
+		2871D8B5F48B23D3B1178E23 /* MT7902Wpa2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = ED3D5423DBFF8AFC0A2B34EF /* MT7902Wpa2.cpp */; };
 		C75BCF6AB2470E7C6B5D4B2A /* MT7902Sta.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */; };
 		DF81F7B47A4EBE1289EF07E7 /* MT7902IOKitBus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B27EF28D146264BD1B584BA8 /* MT7902IOKitBus.cpp */; };
 		BC3D0FBC2F20A76C97A3B679 /* MT7902PCIWrapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2EDEA62F662CC7AB04BC1E /* MT7902PCIWrapper.cpp */; };
@@ -49,6 +51,7 @@
 		FE8AD6062EF245AC3D5A43B6 /* MT7902Device.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FB08AA5739723554CAB394A7 /* MT7902Device.cpp */; };
 		B16DEEF3B505BDD7C5D323FD /* MT7902Channels.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */; };
 		6DB76C6BA3523949A988F484 /* MT7902BeaconParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA9C5BDFBEAAAA86E3A52D33 /* MT7902BeaconParser.cpp */; };
+		DC2ED928E1C6FB959D6C7E4B /* MT7902Wpa2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = ED3D5423DBFF8AFC0A2B34EF /* MT7902Wpa2.cpp */; };
 		2786A83ABB57FBFCE04053A3 /* MT7902Sta.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */; };
 		56EF17E537879893BEF2004A /* MT7902IOKitBus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B27EF28D146264BD1B584BA8 /* MT7902IOKitBus.cpp */; };
 		EC25B5F510632F05F357B779 /* MT7902PCIWrapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2EDEA62F662CC7AB04BC1E /* MT7902PCIWrapper.cpp */; };
@@ -66,6 +69,7 @@
 		DE381CEB902B9B2136F668FF /* MT7902Device.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FB08AA5739723554CAB394A7 /* MT7902Device.cpp */; };
 		3045FD257E885AF1F2A7FD9D /* MT7902Channels.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */; };
 		F06ABF17C0F1CE489BE9AB54 /* MT7902BeaconParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AA9C5BDFBEAAAA86E3A52D33 /* MT7902BeaconParser.cpp */; };
+		1990061A4FEA48F532EA7852 /* MT7902Wpa2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = ED3D5423DBFF8AFC0A2B34EF /* MT7902Wpa2.cpp */; };
 		3C2BAE4C7021428DD6E2A818 /* MT7902Sta.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */; };
 		5018DC708980AF3D3CB83CB1 /* MT7902IOKitBus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B27EF28D146264BD1B584BA8 /* MT7902IOKitBus.cpp */; };
 		65FB455CAEAB8F8D4F28FAD0 /* MT7902PCIWrapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF2EDEA62F662CC7AB04BC1E /* MT7902PCIWrapper.cpp */; };
@@ -123,6 +127,8 @@
 		514381CFD8EFEFE73E054C90 /* MT7902Channels.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Channels.hpp; path = AirportMT7902/Net80211/MT7902Channels.hpp; sourceTree = "<group>"; };
 		8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Sta.cpp; path = AirportMT7902/Net80211/MT7902Sta.cpp; sourceTree = "<group>"; };
 		680F460E6187D6B8E30BAE9A /* MT7902Sta.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Sta.hpp; path = AirportMT7902/Net80211/MT7902Sta.hpp; sourceTree = "<group>"; };
+		ED3D5423DBFF8AFC0A2B34EF /* MT7902Wpa2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Wpa2.cpp; path = AirportMT7902/Net80211/MT7902Wpa2.cpp; sourceTree = "<group>"; };
+		02C9D257EBE878D4B2D4652D /* MT7902Wpa2.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Wpa2.hpp; path = AirportMT7902/Net80211/MT7902Wpa2.hpp; sourceTree = "<group>"; };
 		BBF9D2DCDD7B9BB49861DEF4 /* PrivateSPI.pch */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = PrivateSPI.pch; path = AirportMT7902/PrivateSPI.pch; sourceTree = "<group>"; };
 		66F6D0351BF73FDEBBC05DD4 /* MT7902BtFwData.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902BtFwData.cpp; path = MT7902BluetoothFirmware/Firmware/MT7902BtFwData.cpp; sourceTree = "<group>"; };
 		1B5218971158B96462036B78 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = MT7902BluetoothFirmware/Info.plist; sourceTree = "<group>"; };
@@ -227,6 +233,8 @@
 				514381CFD8EFEFE73E054C90 /* MT7902Channels.hpp */,
 				8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */,
 				680F460E6187D6B8E30BAE9A /* MT7902Sta.hpp */,
+				ED3D5423DBFF8AFC0A2B34EF /* MT7902Wpa2.cpp */,
+				02C9D257EBE878D4B2D4652D /* MT7902Wpa2.hpp */,
 				BBF9D2DCDD7B9BB49861DEF4 /* PrivateSPI.pch */,
 				66F6D0351BF73FDEBBC05DD4 /* MT7902BtFwData.cpp */,
 				1B5218971158B96462036B78 /* Info.plist */,
@@ -377,6 +385,7 @@
 				7C6CBED9373318780EC4E34D /* MT7902Device.cpp in Sources */,
 				40E0A38AF7C9EB5B46AE3013 /* MT7902Channels.cpp in Sources */,
 				A84D0DC4B76C3E1B03B0E66B /* MT7902BeaconParser.cpp in Sources */,
+				BB70485A7573865AFDE99819 /* MT7902Wpa2.cpp in Sources */,
 				F8ED923F58F7D4A6908A846F /* MT7902Sta.cpp in Sources */,
 				317D88EC66FC8459A3E35956 /* MT7902IOKitBus.cpp in Sources */,
 				238C797CC4BFB6C1BC77727A /* MT7902PCIWrapper.cpp in Sources */,
@@ -400,6 +409,7 @@
 				F80EFAB56011C0648BDFB693 /* MT7902Device.cpp in Sources */,
 				9123043AD578AD09BDEF4CFC /* MT7902Channels.cpp in Sources */,
 				8DDED2717A61BE7EF6FC5CF9 /* MT7902BeaconParser.cpp in Sources */,
+				2871D8B5F48B23D3B1178E23 /* MT7902Wpa2.cpp in Sources */,
 				C75BCF6AB2470E7C6B5D4B2A /* MT7902Sta.cpp in Sources */,
 				DF81F7B47A4EBE1289EF07E7 /* MT7902IOKitBus.cpp in Sources */,
 				BC3D0FBC2F20A76C97A3B679 /* MT7902PCIWrapper.cpp in Sources */,
@@ -423,6 +433,7 @@
 				FE8AD6062EF245AC3D5A43B6 /* MT7902Device.cpp in Sources */,
 				B16DEEF3B505BDD7C5D323FD /* MT7902Channels.cpp in Sources */,
 				6DB76C6BA3523949A988F484 /* MT7902BeaconParser.cpp in Sources */,
+				DC2ED928E1C6FB959D6C7E4B /* MT7902Wpa2.cpp in Sources */,
 				2786A83ABB57FBFCE04053A3 /* MT7902Sta.cpp in Sources */,
 				56EF17E537879893BEF2004A /* MT7902IOKitBus.cpp in Sources */,
 				EC25B5F510632F05F357B779 /* MT7902PCIWrapper.cpp in Sources */,
@@ -446,6 +457,7 @@
 				DE381CEB902B9B2136F668FF /* MT7902Device.cpp in Sources */,
 				3045FD257E885AF1F2A7FD9D /* MT7902Channels.cpp in Sources */,
 				F06ABF17C0F1CE489BE9AB54 /* MT7902BeaconParser.cpp in Sources */,
+				1990061A4FEA48F532EA7852 /* MT7902Wpa2.cpp in Sources */,
 				3C2BAE4C7021428DD6E2A818 /* MT7902Sta.cpp in Sources */,
 				5018DC708980AF3D3CB83CB1 /* MT7902IOKitBus.cpp in Sources */,
 				65FB455CAEAB8F8D4F28FAD0 /* MT7902PCIWrapper.cpp in Sources */,

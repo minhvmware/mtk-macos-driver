@@ -241,6 +241,7 @@ int MT7902Sta::associate(const AssocRequestParams &req) {
     if (mLink.state >= kStaAuthenticating)
         (void)disassociate(8);
 
+    mWpa2.reset();
     mLink = {};
     mLink.authLower = req.authLower;
     mLink.authUpper = req.authUpper;
@@ -274,6 +275,25 @@ int MT7902Sta::associate(const AssocRequestParams &req) {
     } else {
         MTK_ERR("Association target not found in scan cache");
         return kErrNotFound;
+    }
+
+    if (mLink.encrypted) {
+        uint8_t grpCipher = MCU_CIPHER_AES_CCMP;
+        if (mLink.apIeLen > 0 && (req.hasPmk || mLink.rsnIeLen == 0)) {
+            uint8_t builtRsn[64] = {};
+            size_t builtLen = MT7902Wpa2::buildStaRsnIeFromAp(
+                mLink.apIes, mLink.apIeLen, builtRsn, grpCipher);
+            if (builtLen > 0) {
+                memcpy(mLink.rsnIe, builtRsn, builtLen);
+                mLink.rsnIeLen = static_cast<uint16_t>(builtLen);
+            }
+        } else if (mLink.rsnIeLen >= 8 && mLink.rsnIe[0] == 48 && mLink.rsnIe[7] == 2) {
+            grpCipher = MCU_CIPHER_TKIP;
+        }
+        if (req.hasPmk) {
+            mWpa2.start(req.pmk, mDev.capability().macAddr, mLink.bssid,
+                        mLink.rsnIe, mLink.rsnIeLen, grpCipher, mDev.bus().nowMs());
+        }
     }
 
     // Tune MT7902 radio to AP channel
@@ -338,6 +358,7 @@ int MT7902Sta::disassociate(uint16_t reasonCode) {
         (void)mDev.mcu().uniAddBss(0, 0, 0, mLink.bssid, ch, 100, 1, false, false);
     }
 
+    mWpa2.reset();
     mLink.state = kStaInit;
     mLink.aid = 0;
     mLink.ptkInstalled = false;
@@ -499,6 +520,7 @@ void MT7902Sta::handleDeauthOrDisassoc(const uint8_t *frame, size_t len, bool is
     uint16_t reason = getLe16(frame + 24);
     mLink.lastDeauthReason = reason;
     bool wasLinked = (mLink.state >= kStaAssociated);
+    mWpa2.reset();
     mLink.state = kStaInit;
     mLink.ptkInstalled = false;
     mLink.gtkInstalled = false;
@@ -508,6 +530,35 @@ void MT7902Sta::handleDeauthOrDisassoc(const uint8_t *frame, size_t len, bool is
             mListener->onLinkStateChanged(false);
         mListener->onDeauthenticated(reason, isDisassoc);
     }
+}
+
+bool MT7902Sta::handleInboundEapol(const uint8_t *ethFrame, size_t len) {
+    if (!ethFrame || len < kEthHdrLen + 4 || getBe16(ethFrame + 12) != 0x888e)
+        return false;
+    if (!mWpa2.active || mLink.state < kStaAssociated)
+        return false;
+
+    uint8_t txReply[512] = {};
+    size_t txLen = 0;
+    Wpa2GtkResult gtk = {};
+    Wpa2StepResult res = mWpa2.processRxEapol(ethFrame, len, txReply, sizeof(txReply), txLen, gtk);
+
+    if (res == kWpa2SentMsg2 && txLen > 0) {
+        MTK_LOG("WPA2 4-way handshake: Rx Msg 1/4 -> Tx Msg 2/4 (%zu bytes)", txLen);
+        (void)mDev.sendEthernetFrame(txReply, txLen, mLink.apWcid, mLink.qos, false);
+    } else if (res == kWpa2Completed4Way && txLen > 0) {
+        MTK_LOG("WPA2 4-way handshake: Rx Msg 3/4 -> Tx Msg 4/4 & installing PTK/GTK");
+        (void)mDev.sendEthernetFrame(txReply, txLen, mLink.apWcid, mLink.qos, false);
+        if (gtk.found && gtk.keyLen > 0)
+            (void)installCipherKey(mWpa2.groupCipher, gtk.keyIdx, gtk.key, gtk.keyLen, false, true);
+        (void)installCipherKey(MCU_CIPHER_AES_CCMP, 0, mWpa2.ptk.tk, 16, true, true);
+    } else if (res == kWpa2CompletedGroupRekey && txLen > 0) {
+        MTK_LOG("WPA2 group rekey: Tx Group Msg 2/2 & installing GTK idx=%u", gtk.keyIdx);
+        (void)mDev.sendEthernetFrame(txReply, txLen, mLink.apWcid, mLink.qos, mLink.ptkInstalled);
+        if (gtk.found && gtk.keyLen > 0)
+            (void)installCipherKey(mWpa2.groupCipher, gtk.keyIdx, gtk.key, gtk.keyLen, false, true);
+    }
+    return true;
 }
 
 void MT7902Sta::handleData80211Frame(const uint8_t *frame, size_t len) {
@@ -539,6 +590,9 @@ void MT7902Sta::handleData80211Frame(const uint8_t *frame, size_t len) {
     if (payloadLen > 0)
         memcpy(eth + 14, llc + 8, payloadLen);
 
+    if (handleInboundEapol(eth, kEthHdrLen + payloadLen))
+        return;
+
     if (mListener)
         mListener->onDataFrameReceived(eth, kEthHdrLen + payloadLen);
 }
@@ -551,6 +605,8 @@ void MT7902Sta::onRxEthernetFrame(const uint8_t *ethFrame, size_t len, const Par
         mLink.nss = meta.nss;
         mLink.txRateMbps = MT7902Mac::estimateRateMbps(meta.phyMode, meta.mcs, meta.nss, meta.bw);
     }
+    if (handleInboundEapol(ethFrame, len))
+        return;
     if (mListener)
         mListener->onDataFrameReceived(ethFrame, len);
 }

@@ -200,6 +200,21 @@ int MT7902Device::stopRadio() {
     return kOk;
 }
 
+int MT7902Device::setMacAddress(const uint8_t mac[6]) {
+    if (!mac || (mac[0] & 0x01U))
+        return kErrInvalid;
+    if (memcmp(mCap.macAddr, mac, 6) == 0)
+        return kOk;
+    bool wasRunning = mRadioRunning;
+    if (wasRunning)
+        (void)stopRadio();
+    memcpy(mCap.macAddr, mac, 6);
+    mCap.macValid = true;
+    if (wasRunning)
+        return startRadio();
+    return kOk;
+}
+
 int MT7902Device::suspend() {
     if (!mInitialized || mSuspended)
         return kOk;

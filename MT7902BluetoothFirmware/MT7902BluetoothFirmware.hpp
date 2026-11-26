@@ -19,6 +19,7 @@ public:
     IOService *probe(IOService *provider, SInt32 *score) override;
     bool start(IOService *provider) override;
     void stop(IOService *provider) override;
+    IOReturn setPowerState(unsigned long powerStateOrdinal, IOService *whatDevice) override;
 };
 
 #endif // KERNEL

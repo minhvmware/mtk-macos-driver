@@ -9,6 +9,7 @@
 #include "../HAL/MT7902Device.hpp"
 #include "MT7902BeaconParser.hpp"
 #include "MT7902Channels.hpp"
+#include "MT7902Wpa2.hpp"
 
 namespace mt7902 {
 
@@ -31,6 +32,8 @@ struct AssocRequestParams {
     uint8_t rsnIe[257] = {};
     uint16_t rsnIeLen = 0;
     uint8_t channelHint = 0;
+    uint8_t pmk[32] = {};
+    bool hasPmk = false;
 };
 
 struct StaLinkInfo {
@@ -138,12 +141,14 @@ private:
     void handleAssocResp(const uint8_t *frame, size_t len);
     void handleDeauthOrDisassoc(const uint8_t *frame, size_t len, bool isDisassoc);
     void handleData80211Frame(const uint8_t *frame, size_t len);
+    bool handleInboundEapol(const uint8_t *ethFrame, size_t len);
     uint16_t nextMgmtSeq();
 
     MT7902Device &mDev;
     IStaEventListener *mListener = nullptr;
     MT7902ScanCache mScanCache;
     StaLinkInfo mLink;
+    Wpa2Session mWpa2;
     char mCountryCode[3] = "US";
     bool mPowerOn = false;
     bool mScanning = false;

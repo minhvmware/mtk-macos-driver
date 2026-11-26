@@ -43,6 +43,10 @@ struct ScannedBss {
     // Raw IE payload (bytes immediately following 12-byte fixed beacon fields)
     uint16_t ieLen = 0;
     uint8_t ies[kMaxRawIeLen] = {};
+
+    // Full raw 802.11 Beacon / Probe Response frame (up to 768 bytes) for WCL BEACON_INFO TSF tracking
+    uint16_t rawFrameLen = 0;
+    uint8_t rawFrame[768] = {};
 };
 
 class MT7902ScanCache {
