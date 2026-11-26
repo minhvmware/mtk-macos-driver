@@ -63,13 +63,13 @@ void MT7902IOKitBus::detach() {
 uint32_t MT7902IOKitBus::barRead32(uint32_t barOffset) {
     if (!mBar0Virt || barOffset + 4 > mBar0Len)
         return 0xffffffffU;
-    return OSReadLittleInt32(const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(mBar0Virt)), barOffset);
+    return OSReadLittleInt32(mBar0Virt, barOffset);
 }
 
 void MT7902IOKitBus::barWrite32(uint32_t barOffset, uint32_t val) {
     if (!mBar0Virt || barOffset + 4 > mBar0Len)
         return;
-    OSWriteLittleInt32(const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(mBar0Virt)), barOffset, val);
+    OSWriteLittleInt32(mBar0Virt, barOffset, val);
     OSSynchronizeIO();
 }
 

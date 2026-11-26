@@ -70,7 +70,7 @@ jobs:
               CODE_SIGNING_ALLOWED=NO \
               build > "logs/$SCHEME.log" 2>&1; then
               echo "[ERR] Failed building $SCHEME:"
-              grep -E "error:|fatal error:" "logs/$SCHEME.log" || tail -n 120 "logs/$SCHEME.log"
+              grep -E -A 4 "error:|fatal error:|Undefined symbols" "logs/$SCHEME.log" || tail -n 120 "logs/$SCHEME.log"
               FAILED=1
             else
               mkdir -p "dist/$SUBDIR"
