@@ -8,6 +8,7 @@ tests/test_mt7902
 logs/
 artifacts/
 dist/
+vm/
 
 # macOS / Xcode user state
 .DS_Store
