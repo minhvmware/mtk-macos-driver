@@ -64,7 +64,7 @@ def patch_config_plist(plist_path: Path) -> None:
     nvram_add = cfg.setdefault("NVRAM", {}).setdefault("Add", {})
     apple_boot = nvram_add.setdefault("7C436110-AB2A-4BBB-A880-FE41995C9F82", {})
     cur_args = apple_boot.get("boot-args", "")
-    for flag in ["-v", "keepsyms=1", "debug=0x100", "amfi=0x80", "-lilubetaall"]:
+    for flag in ["-v", "keepsyms=1", "debug=0x100", "serial=1", "amfi=0x80", "-lilubetaall"]:
         if flag not in cur_args.split():
             cur_args = (cur_args + " " + flag).strip()
     apple_boot["boot-args"] = cur_args

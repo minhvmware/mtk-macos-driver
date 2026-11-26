@@ -82,9 +82,11 @@ python3 "${REPO_ROOT}/scripts/vfio-macos-vm/inject_opencore_kexts.py" \
     --bt-kext "${BT_KEXT}" \
     --bluetool-kext "${BLUETOOL_KEXT}"
 
-# Copy OVMF_VARS locally so UEFI NVRAM is writable per-VM
+# Copy 1080p OVMF_VARS locally so UEFI NVRAM is writable per-VM
 if [ ! -f "${VM_DIR}/OVMF_VARS.fd" ]; then
-    if [ -f "${VM_DIR}/OSX-KVM/OVMF_VARS.fd" ]; then
+    if [ -f "${VM_DIR}/OSX-KVM/OVMF_VARS-1920x1080.fd" ]; then
+        cp "${VM_DIR}/OSX-KVM/OVMF_VARS-1920x1080.fd" "${VM_DIR}/OVMF_VARS.fd"
+    elif [ -f "${VM_DIR}/OSX-KVM/OVMF_VARS.fd" ]; then
         cp "${VM_DIR}/OSX-KVM/OVMF_VARS.fd" "${VM_DIR}/OVMF_VARS.fd"
     else
         cp /usr/share/edk2/ovmf/OVMF_VARS.fd "${VM_DIR}/OVMF_VARS.fd"
@@ -97,23 +99,32 @@ if [ ! -f "${VM_DIR}/mac_hdd_ng.qcow2" ]; then
     qemu-img create -f qcow2 "${VM_DIR}/mac_hdd_ng.qcow2" "${DISK_SIZE}"
 fi
 
-# 5. Download official Apple macOS 15 Sequoia Recovery BaseSystem unless skipped
+# 5. Download official Apple macOS Recovery BaseSystem unless skipped
+SHORTNAME=$(echo "${MACOS_TARGET}" | tr '[:upper:]' '[:lower:]')
 if [ "${SKIP_RECOVERY_DOWNLOAD:-0}" != "1" ] && [ ! -f "${VM_DIR}/BaseSystem.img" ]; then
-    echo "[*] Downloading official Apple macOS 15 Sequoia Recovery image..."
-    (
-        cd "${VM_DIR}"
-        # Select Sequoia (macOS 15) automatically in fetch-macOS-v2.py
-        SEQ_CHOICE=$(python3 "${VM_DIR}/OSX-KVM/fetch-macOS-v2.py" <<< $'q\n' 2>/dev/null \
-            | awk '/Sequoia/ || /15/ {gsub(/[^0-9]/, "", $1); if ($1 != "") last=$1} END {print (last ? last : "7")}' || echo "7")
-        echo "[*] Fetching option #${SEQ_CHOICE} from Apple CDN..."
-        python3 "${VM_DIR}/OSX-KVM/fetch-macOS-v2.py" <<< "${SEQ_CHOICE}"
-    )
+    if [ ! -f "${VM_DIR}/BaseSystem.dmg" ]; then
+        echo "[*] Downloading official Apple macOS ${MACOS_TARGET} Recovery image..."
+        python3 - "${VM_DIR}" "${SHORTNAME}" <<'PY'
+import os, sys, runpy
+vm_dir, short = sys.argv[1], sys.argv[2]
+os.chdir(vm_dir)
+os.get_terminal_size = lambda *a, **kw: os.terminal_size((80, 24))
+sys.argv = ["OSX-KVM/fetch-macOS-v2.py", "-s", short]
+try:
+    runpy.run_path("OSX-KVM/fetch-macOS-v2.py", run_name="__main__")
+except SystemExit as e:
+    if e.code not in (None, 0):
+        raise
+PY
+    fi
     if [ -f "${VM_DIR}/BaseSystem.dmg" ]; then
         echo "[*] Converting BaseSystem.dmg -> BaseSystem.img..."
         if command -v dmg2img >/dev/null 2>&1; then
             dmg2img -i "${VM_DIR}/BaseSystem.dmg" "${VM_DIR}/BaseSystem.img"
+        elif python3 "${REPO_ROOT}/scripts/vfio-macos-vm/dmg2raw.py" "${VM_DIR}/BaseSystem.dmg" "${VM_DIR}/BaseSystem.img"; then
+            true
         else
-            qemu-img convert -O raw "${VM_DIR}/BaseSystem.dmg" "${VM_DIR}/BaseSystem.img"
+            qemu-img convert -f dmg -O raw "${VM_DIR}/BaseSystem.dmg" "${VM_DIR}/BaseSystem.img"
         fi
     fi
 fi

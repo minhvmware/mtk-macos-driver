@@ -27,7 +27,8 @@ SMP_CORES="${SMP_CORES:-4}"
 
 OC_IMG="${VM_DIR}/OpenCore-MT7902.img"
 HDD_IMG="${VM_DIR}/mac_hdd_ng.qcow2"
-OVMF_CODE="${VM_DIR}/OSX-KVM/OVMF_CODE.fd"
+OVMF_CODE="${VM_DIR}/OSX-KVM/OVMF_CODE_4M.fd"
+[ -f "${OVMF_CODE}" ] || OVMF_CODE="${VM_DIR}/OSX-KVM/OVMF_CODE.fd"
 [ -f "${OVMF_CODE}" ] || OVMF_CODE="/usr/share/edk2/ovmf/OVMF_CODE.fd"
 OVMF_VARS="${VM_DIR}/OVMF_VARS.fd"
 
@@ -36,15 +37,31 @@ if [ ! -f "${OC_IMG}" ] || [ ! -f "${HDD_IMG}" ]; then
     exit 1
 fi
 
+# Ensure KVM ignores unhandled Apple MSRs (required by XNU kernel on QEMU/KVM)
+if [ -f /sys/module/kvm/parameters/ignore_msrs ]; then
+    MSR_CUR=$(cat /sys/module/kvm/parameters/ignore_msrs)
+    if [ "${MSR_CUR}" != "Y" ] && [ "${MSR_CUR}" != "1" ]; then
+        echo "[*] Enabling kvm.ignore_msrs=1 (required by macOS XNU kernel)..."
+        if [ "$(id -u)" -eq 0 ]; then
+            echo 1 > /sys/module/kvm/parameters/ignore_msrs
+            echo 0 > /sys/module/kvm/parameters/report_ignored_msrs 2>/dev/null || true
+        else
+            sudo sh -c 'echo 1 > /sys/module/kvm/parameters/ignore_msrs; echo 0 > /sys/module/kvm/parameters/report_ignored_msrs 2>/dev/null || true'
+        fi
+    fi
+fi
+
+MY_CPU_OPTS="+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt,check"
 QEMU_ARGS=(
     -enable-kvm
     -m "${RAM_MB}"
-    -cpu Haswell-noTSX,kvm=on,vendor=GenuineIntel,+invtsc,vmware-cpuid-freq=on,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt,check
+    -cpu "Skylake-Client,-hle,-rtm,kvm=on,vendor=GenuineIntel,+invtsc,vmware-cpuid-freq=on,${MY_CPU_OPTS}"
     -machine q35
     -smp "${SMP_CORES},cores=${SMP_CORES},sockets=1"
     -device qemu-xhci,id=xhci
     -device usb-kbd,bus=xhci.0
     -device usb-tablet,bus=xhci.0
+    -device usb-ehci,id=ehci
     -device isa-applesmc,osk="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc"
     -drive if=pflash,format=raw,readonly=on,file="${OVMF_CODE}"
     -drive if=pflash,format=raw,file="${OVMF_VARS}"
@@ -55,7 +72,7 @@ QEMU_ARGS=(
     -device ide-hd,bus=sata.2,drive=OpenCoreBoot,bootindex=1
     -drive id=MacHDD,if=none,format=qcow2,file="${HDD_IMG}"
     -device ide-hd,bus=sata.4,drive=MacHDD
-    -vga vmware
+    -device vmware-svga
     -serial "file:${VM_DIR}/serial.log"
     # Expose dist/ as a read-only FAT drive inside macOS Finder for easy kext updates
     -drive id=KextShare,if=none,format=raw,read-only=on,file="fat:ro:${REPO_ROOT}/dist"
@@ -111,7 +128,7 @@ else
     echo "[*] Booting in --install mode (NAT networking via host wlo1; MT7902 stays on Linux)..."
     QEMU_ARGS+=(
         -netdev user,id=net0,hostfwd=tcp::50922-:22
-        -device vmxnet3,netdev=net0,id=net0,mac=52:54:00:c9:18:27
+        -device virtio-net-pci,netdev=net0,id=net0,mac=52:54:00:c9:18:27
     )
 fi
 
