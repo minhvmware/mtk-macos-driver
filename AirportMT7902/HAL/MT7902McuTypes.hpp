@@ -273,9 +273,14 @@ enum NicCapTlv : uint32_t {
     MT_NIC_CAP_CHIP_CAP = 0x20,
 };
 
-// Connection & BSS/STA TLV constants
-static constexpr uint32_t CONNECTION_INFRA_STA = MTK_BIT(1);
-static constexpr uint32_t CONNECTION_INFRA_AP = MTK_BIT(0);
+// Connection & BSS/STA TLV constants (matching Linux mt76_connac_mcu.h)
+static constexpr uint32_t STA_TYPE_STA = MTK_BIT(0);
+static constexpr uint32_t STA_TYPE_AP = MTK_BIT(1);
+static constexpr uint32_t STA_TYPE_BC = MTK_BIT(5);
+static constexpr uint32_t NETWORK_INFRA = MTK_BIT(16);
+static constexpr uint32_t CONNECTION_INFRA_STA = STA_TYPE_STA | NETWORK_INFRA;
+static constexpr uint32_t CONNECTION_INFRA_AP = STA_TYPE_AP | NETWORK_INFRA;
+static constexpr uint32_t CONNECTION_INFRA_BC = STA_TYPE_BC | NETWORK_INFRA;
 static constexpr uint8_t CONN_STATE_DISCONNECT = 0;
 static constexpr uint8_t CONN_STATE_CONNECT = 1;
 static constexpr uint8_t CONN_STATE_PORT_SECURE = 2;

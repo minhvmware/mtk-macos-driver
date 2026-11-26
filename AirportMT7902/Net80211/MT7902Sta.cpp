@@ -351,11 +351,19 @@ int MT7902Sta::disassociate(uint16_t reasonCode) {
         staP.enable = false;
         (void)mDev.mcu().uniUpdateSta(staP);
 
+        StaUpdateParams bmcP;
+        bmcP.bssIdx = 0;
+        bmcP.wcid = MT7902_WTBL_SIZE - 1;
+        memcpy(bmcP.peerMac, mLink.bssid, 6);
+        bmcP.broadcast = true;
+        bmcP.enable = false;
+        (void)mDev.mcu().uniUpdateSta(bmcP);
+
         ChannelConfig ch;
         ch.primaryChannel = mLink.channel;
         ch.centerChannel = mLink.channel;
         ch.band = static_cast<uint8_t>(mLink.band);
-        (void)mDev.mcu().uniAddBss(0, 0, 0, mLink.bssid, ch, 100, 1, false, false);
+        (void)mDev.mcu().uniAddBss(0, 0, MT7902_WTBL_SIZE - 1, mLink.bssid, ch, 100, 1, false, false);
     }
 
     mWpa2.reset();
@@ -380,7 +388,7 @@ int MT7902Sta::installCipherKey(uint8_t cipher, uint8_t keyIdx, const uint8_t *k
 
     KeyInstallParams kp;
     kp.bssIdx = 0;
-    kp.wcid = pairwise ? mLink.apWcid : 0; // WCID 1 for unicast PTK, WCID 0 for group GTK
+    kp.wcid = pairwise ? mLink.apWcid : static_cast<uint16_t>(MT7902_WTBL_SIZE - 1);
     kp.cipher = cipher;
     kp.keyIdx = keyIdx;
     kp.keyLen = static_cast<uint8_t>(keyLen);
@@ -481,10 +489,24 @@ void MT7902Sta::handleAssocResp(const uint8_t *frame, size_t len) {
     ch.band = static_cast<uint8_t>(mLink.band);
     ch.bw = mLink.bw;
 
+    constexpr uint16_t kBmcWcid = MT7902_WTBL_SIZE - 1;
     (void)mDev.mcu().setChannel(ch, mDev.capability().antennaMask);
-    (void)mDev.mcu().uniAddBss(0, 0, 0, mLink.bssid, ch,
+    (void)mDev.mcu().uniAddBss(0, 0, kBmcWcid, mLink.bssid, ch,
                                mLink.beaconInterval, mLink.dtimPeriod,
                                mLink.qos, true);
+
+    StaUpdateParams bmcP;
+    bmcP.bssIdx = 0;
+    bmcP.wcid = kBmcWcid;
+    bmcP.aid = aid;
+    memcpy(bmcP.peerMac, mLink.bssid, 6);
+    bmcP.state = CONN_STATE_PORT_SECURE;
+    bmcP.qos = false;
+    bmcP.enable = true;
+    bmcP.newly = true;
+    bmcP.broadcast = true;
+    bmcP.rssi = static_cast<int8_t>(mLink.rssi);
+    (void)mDev.mcu().uniUpdateSta(bmcP);
 
     StaUpdateParams staP;
     staP.bssIdx = 0;

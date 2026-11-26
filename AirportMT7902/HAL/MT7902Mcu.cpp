@@ -110,7 +110,10 @@ int MT7902Mcu::parseResponseHeader(uint32_t cmd, uint8_t expectedSeq,
         if (ev->cid != mcuCmd)
             return kErrAgain;
         payloadOffset = sizeof(Mt76Connac2McuRxd) + sizeof(Mt76ConnacMcuUniEvent);
-        return static_cast<int>(getLe32(&ev->status));
+        int st = static_cast<int>(getLe32(&ev->status));
+        if (st != 0)
+            MTK_ERR("MCU UNI cmd 0x%02x returned status=0x%x", mcuCmd, st);
+        return st;
     }
 
     payloadOffset = sizeof(Mt76Connac2McuRxd);
@@ -541,11 +544,13 @@ int MT7902Mcu::uniAddDev(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
     if (enable) {
         int err = sendMessage(MCU_UNI_CMD_DEV_INFO_UPDATE, &devReq, sizeof(devReq), true);
         if (err != kOk) return err;
-        return sendMessage(MCU_UNI_CMD_BSS_INFO_UPDATE, &bssReq, sizeof(bssReq), true);
+        err = sendMessage(MCU_UNI_CMD_BSS_INFO_UPDATE, &bssReq, sizeof(bssReq), true);
+        return (err < 0) ? err : kOk;
     } else {
         int err = sendMessage(MCU_UNI_CMD_BSS_INFO_UPDATE, &bssReq, sizeof(bssReq), true);
-        if (err != kOk) return err;
-        return sendMessage(MCU_UNI_CMD_DEV_INFO_UPDATE, &devReq, sizeof(devReq), true);
+        if (err < 0) return err;
+        err = sendMessage(MCU_UNI_CMD_DEV_INFO_UPDATE, &devReq, sizeof(devReq), true);
+        return (err < 0) ? err : kOk;
     }
 }
 
@@ -622,7 +627,7 @@ int MT7902Mcu::uniUpdateSta(const StaUpdateParams &p) {
 
     putLe16(&req.basic.tag, STA_REC_BASIC);
     putLe16(&req.basic.len, sizeof(StaRecBasicTlv));
-    putLe32(&req.basic.conn_type, CONNECTION_INFRA_AP);
+    putLe32(&req.basic.conn_type, p.broadcast ? CONNECTION_INFRA_BC : CONNECTION_INFRA_AP);
     req.basic.conn_state = p.enable ? p.state : CONN_STATE_DISCONNECT;
     req.basic.qos = p.qos ? 1 : 0;
     putLe16(&req.basic.aid, p.aid);

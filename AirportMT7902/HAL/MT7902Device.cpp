@@ -169,16 +169,25 @@ void MT7902Device::shutdown() {
 int MT7902Device::startRadio() {
     if (!mInitialized)
         return kErrNoDev;
+    if (mSuspended) {
+        int r = resume();
+        if (r != kOk)
+            return r;
+    }
     if (mRadioRunning)
         return kOk;
 
     int err = mMcu.setMacEnable(0, true);
-    if (err != kOk)
+    if (err != kOk) {
+        MTK_ERR("setMacEnable(true) failed: %d", err);
         return err;
+    }
 
     err = mMcu.uniAddDev(0, 0, 0, mCap.macAddr, true);
-    if (err != kOk)
+    if (err != kOk) {
+        MTK_ERR("uniAddDev(true) failed: %d", err);
         return err;
+    }
 
     ChannelConfig defCh;
     defCh.primaryChannel = 1;
@@ -188,6 +197,7 @@ int MT7902Device::startRadio() {
     (void)mMcu.setChannel(defCh, mCap.antennaMask);
 
     mRadioRunning = true;
+    MTK_LOG("MT7902 radio enabled successfully");
     return kOk;
 }
 

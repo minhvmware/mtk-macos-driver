@@ -56,6 +56,7 @@ struct StaUpdateParams {
     bool qos = true;
     bool enable = true;
     bool newly = true;
+    bool broadcast = false;
     int8_t rssi = -50;
 };
 
