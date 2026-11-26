@@ -26,30 +26,10 @@ jobs:
       - name: Run C++17 Hardware Simulation & Protocol Tests
         run: make test
 
-  macos-kext:
-    name: Build ${{ matrix.scheme }} (${{ matrix.configuration }})
+  macos-kexts:
+    name: Build All 5 macOS Kexts (Ventura / Sonoma / Sequoia / Tahoe / Bluetooth)
     runs-on: macos-15
     needs: host-unit-tests
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - scheme: AirportMT7902-Ventura
-            subdir: Ventura
-            kext: AirportMT7902.kext
-          - scheme: AirportMT7902-Sonoma
-            subdir: Sonoma
-            kext: AirportMT7902.kext
-          - scheme: AirportMT7902-Sequoia
-            subdir: Sequoia
-            kext: AirportMT7902.kext
-          - scheme: AirportMT7902-Tahoe
-            subdir: Tahoe
-            kext: AirportMT7902.kext
-          - scheme: MT7902BluetoothFirmware
-            subdir: Bluetooth
-            kext: MT7902BluetoothFirmware.kext
-        configuration: [Release]
     steps:
       - uses: actions/checkout@v4
       - name: Install Acidanthera MacKernelSDK
@@ -64,27 +44,44 @@ jobs:
             python3 scripts/pack_firmware.py --stub
           fi
           python3 scripts/generate_xcode_project.py
-      - name: Build ${{ matrix.scheme }} (${{ matrix.configuration }})
+      - name: Build all 5 native macOS .kext targets (x86_64 Release)
         run: |
           set -euo pipefail
-          mkdir -p logs
-          xcodebuild -project MT7902MacOS.xcodeproj \
-            -scheme "${{ matrix.scheme }}" \
-            -configuration "${{ matrix.configuration }}" \
-            ARCHS=x86_64 \
-            SYMROOT="$PWD/build/products" \
-            OBJROOT="$PWD/build/obj" \
-            CODE_SIGNING_ALLOWED=NO \
-            build > "logs/${{ matrix.scheme }}.log" 2>&1 || { tail -n 120 "logs/${{ matrix.scheme }}.log"; exit 1; }
-      - name: Package ${{ matrix.kext }}
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts
-          ditto -c -k --keepParent \
-            "$PWD/build/products/${{ matrix.configuration }}/${{ matrix.subdir }}/${{ matrix.kext }}" \
-            "artifacts/${{ matrix.scheme }}-${{ matrix.configuration }}.zip"
+          mkdir -p logs dist
+          TARGETS=(
+            "AirportMT7902-Ventura:Ventura:AirportMT7902.kext"
+            "AirportMT7902-Sonoma:Sonoma:AirportMT7902.kext"
+            "AirportMT7902-Sequoia:Sequoia:AirportMT7902.kext"
+            "AirportMT7902-Tahoe:Tahoe:AirportMT7902.kext"
+            "MT7902BluetoothFirmware:Bluetooth:MT7902BluetoothFirmware.kext"
+          )
+          FAILED=0
+          for entry in "${TARGETS[@]}"; do
+            IFS=':' read -r SCHEME SUBDIR KEXT <<< "$entry"
+            echo "================================================================"
+            echo "[*] Building $SCHEME -> $SUBDIR/$KEXT"
+            echo "================================================================"
+            if ! xcodebuild -project MT7902MacOS.xcodeproj \
+              -scheme "$SCHEME" \
+              -configuration Release \
+              ARCHS=x86_64 \
+              SYMROOT="$PWD/build/products" \
+              OBJROOT="$PWD/build/obj/$SUBDIR" \
+              CODE_SIGNING_ALLOWED=NO \
+              build > "logs/$SCHEME.log" 2>&1; then
+              echo "[ERR] Failed building $SCHEME:"
+              grep -E "error:|fatal error:" "logs/$SCHEME.log" || tail -n 120 "logs/$SCHEME.log"
+              FAILED=1
+            else
+              mkdir -p "dist/$SUBDIR"
+              cp -R "$PWD/build/products/Release/$SUBDIR/$KEXT" "dist/$SUBDIR/"
+              ditto -c -k --keepParent "dist/$SUBDIR/$KEXT" "dist/${SCHEME}-Release.zip"
+              echo "[OK] Built dist/$SUBDIR/$KEXT"
+            fi
+          done
+          exit "$FAILED"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.scheme }}-${{ matrix.configuration }}
-          path: artifacts/${{ matrix.scheme }}-${{ matrix.configuration }}.zip
+          name: MT7902-macOS-Kexts-Release
+          path: dist/*.zip
           if-no-files-found: error
