@@ -231,19 +231,55 @@ bool AirportMT7902::start(IOService *provider) {
         releaseResources();
         return false;
     }
+    mProtoIf->setInterfaceRole(1);
+    mProtoIf->setInterfaceId(1);
+
+    if (!mProtoIf->attach(this) || !attachInterface(mProtoIf, this)) {
+        releaseResources();
+        return false;
+    }
 
 #ifdef AIRPORT_WCL
-    mSkywalkNetIf = OSDynamicCast(IO80211InfraInterface, getPrimarySkywalkInterface());
+    mSkywalkNetIf = mProtoIf;
+    const bool immediateBsdAttach = false;
 #else
-    mSkywalkNetIf = getPrimarySkywalkInterface();
+    mSkywalkNetIf = mProtoIf;
+    const bool immediateBsdAttach = true;
 #endif
 
-    if (mSkywalkNetIf) {
-        mBsdIf = new AirportMT7902EthernetInterface();
-        if (mBsdIf && mBsdIf->initWithSkywalkInterfaceAndProvider(this, mSkywalkNetIf)) {
-            attachInterface(reinterpret_cast<IONetworkInterface **>(&mBsdIf), true);
-        }
+    if (!IONetworkController::attachInterface(
+            reinterpret_cast<IONetworkInterface **>(&mBsdIf), immediateBsdAttach)) {
+        releaseResources();
+        return false;
     }
+
+    IOSkywalkEthernetInterface::RegistrationInfo registInfo = {};
+    if (!mProtoIf->initRegistrationInfo(&registInfo, 1, sizeof(registInfo))) {
+        releaseResources();
+        return false;
+    }
+
+#ifdef AIRPORT_WCL
+    mProtoIf->mExpansionData->fRegistrationInfo =
+        static_cast<IOSkywalkNetworkInterface::RegistrationInfo *>(
+            IOMalloc(sizeof(IOSkywalkNetworkInterface::RegistrationInfo)));
+    mProtoIf->mExpansionData2->fRegistrationInfo =
+        static_cast<IOSkywalkEthernetInterface::RegistrationInfo *>(
+            IOMalloc(sizeof(IOSkywalkEthernetInterface::RegistrationInfo)));
+    if (!mProtoIf->mExpansionData->fRegistrationInfo ||
+        !mProtoIf->mExpansionData2->fRegistrationInfo) {
+        releaseResources();
+        return false;
+    }
+    memcpy(mProtoIf->mExpansionData->fRegistrationInfo, &registInfo, sizeof(registInfo));
+    memcpy(mProtoIf->mExpansionData2->fRegistrationInfo, &registInfo, sizeof(registInfo));
+    if (mProtoIf->getInterfaceRole() == 1)
+        mProtoIf->deferBSDAttach(true);
+    if (!mProtoIf->start(this)) {
+        releaseResources();
+        return false;
+    }
+#endif
 
     registerService();
     MTK_LOG("AirportMT7902 (V2/Skywalk) started successfully");
@@ -252,8 +288,11 @@ bool AirportMT7902::start(IOService *provider) {
 
 void AirportMT7902::stop(IOService *provider) {
     if (mBsdIf) {
-        detachInterface(mBsdIf, true);
+        IONetworkController::detachInterface(mBsdIf, true);
         OSSafeReleaseNULL(mBsdIf);
+    }
+    if (mProtoIf) {
+        detachInterface(mProtoIf, true);
     }
     releaseResources();
     super::stop(provider);
@@ -327,7 +366,7 @@ IOReturn AirportMT7902::disable(IO80211SkywalkInterface *netif) {
 IONetworkInterface *AirportMT7902::createInterface() {
     AirportMT7902EthernetInterface *iface = new AirportMT7902EthernetInterface();
     if (!iface) return nullptr;
-    if (!iface->init(this)) {
+    if (!iface->initWithSkywalkInterfaceAndProvider(this, mProtoIf)) {
         iface->release();
         return nullptr;
     }
@@ -339,7 +378,7 @@ bool AirportMT7902::configureInterface(IONetworkInterface *netif) {
         return false;
     IONetworkData *data = netif->getNetworkData(kIONetworkStatsKey);
     if (data)
-        mNetStats = static_cast<IONetworkStats *>(data->getBuffer());
+        mNetStats = static_cast<IONetworkStats *>(const_cast<void *>(data->getBuffer()));
     return true;
 }
 

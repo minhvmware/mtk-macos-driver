@@ -19,6 +19,7 @@
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOInterruptEventSource.h>
 #include <IOKit/IOTimerEventSource.h>
+#include <IOKit/network/IOGatedOutputQueue.h>
 #include <IOKit/pci/IOPCIDevice.h>
 
 #include "AirportMT7902EthernetInterface.hpp"

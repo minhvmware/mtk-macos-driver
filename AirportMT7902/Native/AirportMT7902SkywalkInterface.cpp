@@ -27,7 +27,22 @@ bool AirportMT7902SkywalkInterface::initWithController(AirportMT7902 *ctrl, mt79
 }
 
 bool AirportMT7902SkywalkInterface::init(IOService *provider) {
-    return super::init(provider);
+    if (!IO80211InfraInterface::init())
+        return false;
+#ifdef AIRPORT_WCL
+    IOEthernetAddress addr = {};
+    if (mController && mController->getHardwareAddress(&addr) == kIOReturnSuccess) {
+        if (!IO80211SkywalkInterface::init(provider, reinterpret_cast<ether_addr *>(&addr)))
+            return false;
+    }
+    mt7902::wcl::DriverAvailability avail = {};
+    avail.version = 1;
+    avail.available = 1;
+    postMessage(mt7902::wcl::kMsgDriverAvailable, &avail, sizeof(avail), false);
+#else
+    (void)provider;
+#endif
+    return true;
 }
 
 void AirportMT7902SkywalkInterface::notifyScanDone() {
@@ -115,8 +130,8 @@ void AirportMT7902SkywalkInterface::notifyDeauth(uint16_t reasonCode, bool isDis
     postMessage(mt7902::wcl::kMsgDeauth, &ev, sizeof(ev), false);
 #else
     (void)reasonCode;
-    postMessage(isDisassoc ? APPLE80211_M_DISASSOC_RECEIVED : APPLE80211_M_DEAUTH_RECEIVED,
-                nullptr, 0, false);
+    (void)isDisassoc;
+    postMessage(APPLE80211_M_DEAUTH_RECEIVED, nullptr, 0, false);
 #endif
 }
 
@@ -217,9 +232,11 @@ IOReturn AirportMT7902SkywalkInterface::getSCAN_RESULT(apple80211_scan_result *s
     sr->asr_ssid_len = bss->ssidLen;
     memcpy(sr->asr_ssid, bss->ssid, bss->ssidLen);
     if (bss->ieLen > 0) {
-        memcpy(mScanIeBuf, bss->ies, bss->ieLen);
-        sr->asr_ie_len = bss->ieLen;
-        sr->asr_ie_data = mScanIeBuf;
+        uint32_t ieCopy = bss->ieLen > sizeof(sr->asr_ie_data)
+                              ? static_cast<uint32_t>(sizeof(sr->asr_ie_data))
+                              : bss->ieLen;
+        sr->asr_ie_len = ieCopy;
+        memcpy(sr->asr_ie_data, bss->ies, ieCopy);
     }
     return kIOReturnSuccess;
 }
@@ -580,7 +597,7 @@ IOReturn AirportMT7902SkywalkInterface::setWCL_ASSOCIATE(apple80211AssocCandidat
 
     mt7902::AssocRequestParams req;
     req.ssidLen = static_cast<uint8_t>(join.ssidLength);
-    memcpy(req.ssid, join.ssid, req.ssidLength);
+    memcpy(req.ssid, join.ssid, req.ssidLen);
     memcpy(req.bssid, join.bssid, 6);
     req.hasBssid = true;
     req.authLower = join.lowerAuth;

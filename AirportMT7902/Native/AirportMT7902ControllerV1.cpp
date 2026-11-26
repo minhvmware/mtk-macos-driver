@@ -228,7 +228,7 @@ bool AirportMT7902::configureInterface(IONetworkInterface *netif) {
         return false;
     IONetworkData *data = netif->getNetworkData(kIONetworkStatsKey);
     if (data)
-        mNetStats = static_cast<IONetworkStats *>(data->getBuffer());
+        mNetStats = static_cast<IONetworkStats *>(const_cast<void *>(data->getBuffer()));
     return true;
 }
 
@@ -477,8 +477,9 @@ void AirportMT7902::onLinkStateChanged(bool up) {
 
 void AirportMT7902::onDeauthenticated(uint16_t reasonCode, bool isDisassoc) {
     (void)reasonCode;
+    (void)isDisassoc;
     if (mNetIf) {
-        mNetIf->postMessage(isDisassoc ? APPLE80211_M_DISASSOC_RECEIVED : APPLE80211_M_DEAUTH_RECEIVED);
+        mNetIf->postMessage(APPLE80211_M_DEAUTH_RECEIVED);
         mNetIf->postMessage(APPLE80211_M_LINK_CHANGED);
     }
 }
@@ -504,8 +505,8 @@ IOReturn AirportMT7902::handleGetCardCapabilities(apple80211_capability_data *ca
     caps |= (1U << APPLE80211_CAP_WME);
     caps |= (1U << APPLE80211_CAP_SHORT_GI_20MHZ);
     caps |= (1U << APPLE80211_CAP_SHORT_GI_40MHZ);
-    caps |= (1U << APPLE80211_CAP_TXSPATIAL);
-    caps |= (1U << APPLE80211_CAP_RXSPATIAL);
+    caps |= (1U << APPLE80211_CAP_SHSLOT);
+    caps |= (1U << APPLE80211_CAP_SHPREAMBLE);
     cap->capabilities[0] = static_cast<uint8_t>(caps & 0xffU);
     cap->capabilities[1] = static_cast<uint8_t>((caps >> 8) & 0xffU);
     cap->capabilities[2] = static_cast<uint8_t>((caps >> 16) & 0xffU);
@@ -550,9 +551,11 @@ IOReturn AirportMT7902::handleGetScanResult(apple80211_scan_result **out) {
     mScanResultScratch.asr_ssid_len = bss->ssidLen;
     memcpy(mScanResultScratch.asr_ssid, bss->ssid, bss->ssidLen);
     if (bss->ieLen > 0) {
-        memcpy(mScanIeScratch, bss->ies, bss->ieLen);
-        mScanResultScratch.asr_ie_len = bss->ieLen;
-        mScanResultScratch.asr_ie_data = mScanIeScratch;
+        uint32_t ieCopy = bss->ieLen > sizeof(mScanResultScratch.asr_ie_data)
+                              ? static_cast<uint32_t>(sizeof(mScanResultScratch.asr_ie_data))
+                              : bss->ieLen;
+        mScanResultScratch.asr_ie_len = ieCopy;
+        memcpy(mScanResultScratch.asr_ie_data, bss->ies, ieCopy);
     }
     *out = &mScanResultScratch;
     return kIOReturnSuccess;
