@@ -42,9 +42,34 @@ bool AirportMT7902SkywalkInterface::init(IOService *provider) {
 }
 
 #ifdef AIRPORT_WCL
+extern IOCommandGate *gMT7902CommandGate;
+
+namespace {
+struct WclPostMsgArgs {
+    AirportMT7902 *ctrl;
+    AirportMT7902SkywalkInterface *iface;
+    uint32_t msgId;
+    void *data;
+    size_t len;
+};
+
+IOReturn postWclMessageGated(OSObject *, void *arg0, void *, void *, void *) {
+    auto *a = static_cast<WclPostMsgArgs *>(arg0);
+    (void)a->ctrl->postMessage(a->iface, a->msgId, a->data, a->len, true);
+    return kIOReturnSuccess;
+}
+} // namespace
+
 void AirportMT7902SkywalkInterface::postWclMessage(uint32_t msgId, void *data, size_t len) {
-    if (mController)
-        (void)mController->postMessage(this, msgId, data, len, true);
+    if (!mController)
+        return;
+    auto *wq = mController->getWorkQueue();
+    if (wq && !wq->inGate() && gMT7902CommandGate) {
+        WclPostMsgArgs args{ mController, this, msgId, data, len };
+        (void)gMT7902CommandGate->runAction(postWclMessageGated, &args);
+        return;
+    }
+    (void)mController->postMessage(this, msgId, data, len, true);
 }
 
 void AirportMT7902SkywalkInterface::populateWclBeaconBuffer(

@@ -19,7 +19,7 @@ static IOPMPowerState kV2PowerStates[2] = {
 };
 
 bool AirportMT7902::init(OSDictionary *properties) {
-    mPowerState = 1;
+    mPowerState = 0;
     mDriverAvailableReported = false;
     return super::init(properties);
 }
@@ -147,20 +147,16 @@ bool AirportMT7902::getLogPipes(CCPipe **logPipe, CCPipe **dataPipe, CCPipe **sn
 }
 
 bool AirportMT7902::createMediumTables(const IONetworkMedium **primary) {
-    mMediumDict = OSDictionary::withCapacity(3);
+    mMediumDict = OSDictionary::withCapacity(2);
     if (!mMediumDict)
         return false;
-    IONetworkMedium *autoMed = IONetworkMedium::medium(kIOMediumIEEE80211Auto, 1200000000ULL);
-    if (!autoMed)
+    IONetworkMedium *ieeeMed = IONetworkMedium::medium(kIOMediumIEEE80211, 54000000ULL);
+    if (!ieeeMed)
         return false;
-    IONetworkMedium::addMedium(mMediumDict, autoMed);
-    if (primary) *primary = autoMed;
-    autoMed->release();
+    IONetworkMedium::addMedium(mMediumDict, ieeeMed);
+    if (primary) *primary = ieeeMed;
+    ieeeMed->release();
 
-    if (IONetworkMedium *ieeeMed = IONetworkMedium::medium(kIOMediumIEEE80211, 54000000ULL)) {
-        IONetworkMedium::addMedium(mMediumDict, ieeeMed);
-        ieeeMed->release();
-    }
     if (IONetworkMedium *noneMed = IONetworkMedium::medium(kIOMediumIEEE80211None, 0)) {
         IONetworkMedium::addMedium(mMediumDict, noneMed);
         noneMed->release();
@@ -297,16 +293,11 @@ bool AirportMT7902::start(IOService *provider) {
         return false;
     }
 
-    // Bring radio up immediately at boot so hardware is ready for WCL / Apple80211
-    (void)mSta->setPower(true);
-    mPowerState = 1;
     setLinkStatus(kIONetworkLinkValid);
 
 #ifdef AIRPORT_WCL
     if (mBsdIf)
         mBsdIf->registerService();
-    mProtoIf->notifyDriverAvailable(true);
-    mDriverAvailableReported = true;
 #endif
 
     registerService();
@@ -649,7 +640,7 @@ IOReturn AirportMT7902::setPOWER(IO80211SkywalkInterface *, apple80211_power_dat
         if (on && (!wasOn || !mDriverAvailableReported)) {
             mProtoIf->notifyDriverAvailable(true);
             mDriverAvailableReported = true;
-        } else if (!on && wasOn) {
+        } else if (!on) {
             mProtoIf->notifyDriverAvailable(false);
             mDriverAvailableReported = false;
         }
