@@ -153,8 +153,10 @@ bool MT7902BluetoothFirmware::start(IOService *provider) {
         usbDev->close(this);
     }
 
-    // Rename the composite USB node to match Apple's expected USB HCI controller name
-    // so BlueToolFixup + macOS user-space bluetoothd attach to the initialized HCI endpoints.
+    // Rename the composite USB node AND set USB Product Name / kUSBProductString so macOS 12–15+
+    // bluetoothd GetProductAndVendorID() matches the internal USB HCI controller cleanly.
+    usbDev->setProperty("USB Product Name", "Bluetooth USB Host Controller");
+    usbDev->setProperty("kUSBProductString", "Bluetooth USB Host Controller");
     usbDev->setName("Bluetooth USB Host Controller");
     registerService();
     return true;
