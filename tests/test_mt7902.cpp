@@ -839,7 +839,9 @@ static void testMacOSWclWireCodecs() {
     putLe32(scanBuf.data() + 0x40, 1);  // scan type
     putLe32(scanBuf.data() + 0x54, 2);  // 2 channels
     putLe32(scanBuf.data() + 0x58 + 4, 6);
+    putLe32(scanBuf.data() + 0x58 + 8, 0x0008); // 2.4 GHz band flag
     putLe32(scanBuf.data() + 0x58 + 12 + 4, 36);
+    putLe32(scanBuf.data() + 0x58 + 12 + 8, 0x2010); // 5 GHz band flag (0x2000 | 0x10)
 
     wcl::DecodedScanRequest dscan;
     TEST_CHECK(wcl::decodeScan(scanBuf.data(), scanBuf.size(), dscan), "wcl::decodeScan failed");

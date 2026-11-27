@@ -688,6 +688,7 @@ void MT7902Sta::onScanComplete(uint8_t seqNum) {
     if (mLink.state == kStaScanning)
         mLink.state = kStaInit;
     mScanCache.resetCursor();
+    MTK_LOG("Scan finished: %zu BSS entries in cache", mScanCache.count());
     if (mListener)
         mListener->onScanFinished();
 }

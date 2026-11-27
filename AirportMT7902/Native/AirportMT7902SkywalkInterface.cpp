@@ -44,6 +44,10 @@ bool AirportMT7902SkywalkInterface::init(IOService *provider) {
 #ifdef AIRPORT_WCL
 extern IOCommandGate *gMT7902CommandGate;
 
+IOWorkLoop *AirportMT7902SkywalkInterface::getWorkLoop() const {
+    return mController ? mController->getWorkLoop() : nullptr;
+}
+
 namespace {
 struct WclPostMsgArgs {
     AirportMT7902 *ctrl;
@@ -84,15 +88,17 @@ void AirportMT7902SkywalkInterface::populateWclBeaconBuffer(
     meta->channel = bss.channel;
     memcpy(meta->bssid, bss.bssid, 6);
     meta->rssi = bss.rssi;
-    meta->noise = static_cast<int16_t>(bss.noise);
-    meta->snr = static_cast<int16_t>(bss.rssi - bss.noise);
+    meta->noise = 0;
+    meta->snr = 0;
     meta->interval = bss.beaconInterval;
     meta->capability = bss.capability;
     meta->flags = mt7902::wcl::kRssiValid | mt7902::wcl::kSsidPresent;
     uint8_t *ieDst = buf + sizeof(*meta);
-    if (ieLen > 0) {
+    if (ieLen > 0 && mt7902::wcl::validIeChain(bss.ies, ieLen)) {
         memcpy(ieDst, bss.ies, ieLen);
         ieLen = mt7902::wcl::selectWPA2TransitionMode(ieDst, ieLen);
+    } else {
+        ieLen = 0;
     }
     meta->ieLength = static_cast<uint32_t>(ieLen);
     outTotalLen = sizeof(*meta) + ieLen;
@@ -150,6 +156,20 @@ void AirportMT7902SkywalkInterface::notifyDriverAvailable(bool ready) {
 void AirportMT7902SkywalkInterface::notifyScanDone() {
 #ifdef AIRPORT_WCL
     if (mWclScanPending) {
+        if (mSta) {
+            uint64_t nowMs = mSta->device().bus().nowMs();
+            mSta->scanCache().resetCursor();
+            uint8_t scanBuf[sizeof(mt7902::wcl::BeaconMetadata) + 0x800] = {};
+            while (const auto *bss = mSta->scanCache().nextResult()) {
+                if (nowMs >= bss->lastSeenMs && nowMs - bss->lastSeenMs <= 30000) {
+                    size_t totalLen = 0;
+                    memset(scanBuf, 0, sizeof(scanBuf));
+                    populateWclBeaconBuffer(*bss, scanBuf, totalLen);
+                    postWclMessage(mt7902::wcl::kMsgScanResult, scanBuf, totalLen);
+                }
+            }
+            mSta->scanCache().resetCursor();
+        }
         mWclScanPending = false;
         IOReturn status = kIOReturnSuccess;
         postWclMessage(mt7902::wcl::kMsgScanDone, &status, sizeof(status));
@@ -177,6 +197,7 @@ void AirportMT7902SkywalkInterface::notifyAssocDone(bool success, uint16_t statu
     mt7902::wcl::AssociationEvent ev = {};
     ev.status = success ? 0 : (statusCode ? statusCode : 1);
     ev.reason = 0;
+    ev.mlo = 1; // BSSID included flag (verified in T2UB AssociationNotifications.cpp)
     memcpy(ev.bssid, lk.bssid, 6);
     ev.driverStatus = success ? kIOReturnSuccess : kIOReturnError;
     mWclAssocNotified = success;

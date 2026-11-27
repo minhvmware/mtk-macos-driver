@@ -126,8 +126,18 @@ void MT7902Mcu::processRxRing0Packet(const uint8_t *pkt, size_t len) {
 
     uint32_t rxd0 = getLe32(pkt);
     uint8_t pktType = static_cast<uint8_t>(fieldGet(MT_RXD0_PKT_TYPE, rxd0));
+    uint8_t pktFlag = static_cast<uint8_t>(fieldGet(MT_RXD0_PKT_FLAG, rxd0));
 
-    // MT7902 shares RX Ring 0 between MCU events, TX-free notifications, and TXS
+    if (pktType == PKT_TYPE_RX_EVENT && pktFlag == 0x1)
+        pktType = PKT_TYPE_NORMAL_MCU;
+
+    // MT7902 shares RX Ring 0 between MCU events, TX-free, TXS, and MCU/scan RX frames
+    // (matching Linux mt7921_queue_rx_skb on MT_RXQ_MCU).
+    if (pktType == PKT_TYPE_NORMAL || pktType == PKT_TYPE_NORMAL_MCU) {
+        if (mObserver)
+            mObserver->onRxNormalPacket(pkt, len);
+        return;
+    }
     if (pktType == PKT_TYPE_TXRX_NOTIFY) {
         if (mObserver)
             mObserver->onTxFreePacket(pkt, len);
@@ -192,7 +202,7 @@ void MT7902Mcu::processRxRing0Packet(const uint8_t *pkt, size_t len) {
 void MT7902Mcu::drainRxEvents() {
     uint8_t buf[MT7902_RX_BUF_SIZE];
     size_t len = 0;
-    for (int i = 0; i < 64; ++i) {
+    for (int i = 0; i < 512; ++i) {
         if (mDma.rxDequeue(kRxMcuEvent, buf, sizeof(buf), len) != kOk)
             break;
         processRxRing0Packet(buf, len);
@@ -392,7 +402,8 @@ int MT7902Mcu::setEepromEfuseMode() {
         uint8_t format;
         uint16_t len;
     } req = { 0 /* EE_MODE_EFUSE */, 1 /* EE_FORMAT_WHOLE */, 0 };
-    return sendMessage(MCU_EXT_CMD_EFUSE_BUFFER_MODE, &req, sizeof(req), true);
+    return sendMessage(MCU_EXT_CMD_EFUSE_BUFFER_MODE, &req, sizeof(req), true,
+                       nullptr, 0, nullptr, 500);
 }
 
 int MT7902Mcu::setMacEnable(uint8_t band, bool enable) {
@@ -426,17 +437,23 @@ int MT7902Mcu::setChannel(const ChannelConfig &ch, uint8_t antennaMask) {
     return setChannelInfo(ch, antennaMask, MCU_EXT_CMD_SET_RX_PATH);
 }
 
-int MT7902Mcu::setRxFilter(uint32_t bitOp, uint32_t bitMap) {
+int MT7902Mcu::setRxFilter(uint32_t fif, uint8_t bitOp, uint32_t bitMap) {
+    // Exact 68-byte struct matching Linux mt7921_mcu_set_rxfilter()
     struct __attribute__((packed)) {
-        uint8_t rsv[2];
-        uint8_t band;
-        uint8_t rsv2;
-        uint32_t filter;
+        uint8_t rsv[4];
+        uint8_t mode;
+        uint8_t rsv2[3];
+        uint32_t fif;
+        uint32_t bit_map;
+        uint8_t bit_op;
+        uint8_t pad[51];
     } req;
     memset(&req, 0, sizeof(req));
-    (void)bitOp;
-    putLe32(&req.filter, bitMap);
-    return sendMessage(MCU_CE_CMD_SET_RX_FILTER, &req, sizeof(req), true);
+    req.mode = fif ? 1 : 2;
+    putLe32(&req.fif, fif);
+    putLe32(&req.bit_map, bitMap);
+    req.bit_op = bitOp;
+    return sendMessage(MCU_CE_CMD_SET_RX_FILTER, &req, sizeof(req), false);
 }
 
 int MT7902Mcu::setChannelDomain(const char alpha2[2], const ScanChannelEntry *channels, size_t count) {
@@ -745,10 +762,11 @@ int MT7902Mcu::startHwScan(const ScanRequestParams &params) {
     req.ssid_type_ext = validSsids ? MTK_BIT(0) : 0;
     req.ssids_num = validSsids;
 
-    uint16_t dwell = params.dwellMs;
-    putLe16(&req.channel_dwell_time, dwell);
-    putLe16(&req.channel_min_dwell_time, dwell);
-    putLe16(&req.timeout_value, static_cast<uint16_t>(params.channelCount * dwell));
+    // Connac2 firmware (MT7902/MT7921) uses duration=0 for optimal split-scan timing
+    // (matching Linux mt76_connac_mcu_hw_scan: duration = is_connac2 ? 0 : 60)
+    putLe16(&req.channel_dwell_time, 0);
+    putLe16(&req.channel_min_dwell_time, 0);
+    putLe16(&req.timeout_value, 0);
 
     if (params.channelCount == 0 || params.channelCount > 64) {
         req.channel_type = 0; // Full channel scan

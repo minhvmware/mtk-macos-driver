@@ -73,16 +73,25 @@ def patch_config_plist(plist_path: Path) -> None:
         "-lilubetaall",
         "-btlfxboardid",
         "-btlfxallowanyaddr",
+        "-btlfxdbg",
     ]:
         if flag not in cur_args.split():
             cur_args = (cur_args + " " + flag).strip()
     apple_boot["boot-args"] = cur_args
     # csr-active-config = 0x00000803 (LE: 03 08 00 00) allows unsigned third-party kexts
     apple_boot["csr-active-config"] = bytes([0x03, 0x08, 0x00, 0x00])
+    # Required by BlueToolFixup / bluetoothd on macOS 12+ for non-Apple USB BT controllers
+    apple_boot["bluetoothExternalDongleFailed"] = bytes([0x00])
+    apple_boot["bluetoothInternalControllerInfo"] = bytes(16)
 
     nvram_del = cfg.setdefault("NVRAM", {}).setdefault("Delete", {})
     del_boot = nvram_del.setdefault("7C436110-AB2A-4BBB-A880-FE41995C9F82", [])
-    for key in ["boot-args", "csr-active-config"]:
+    for key in [
+        "boot-args",
+        "csr-active-config",
+        "bluetoothExternalDongleFailed",
+        "bluetoothInternalControllerInfo",
+    ]:
         if key not in del_boot:
             del_boot.append(key)
 

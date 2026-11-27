@@ -191,6 +191,13 @@ static constexpr uint32_t MT_WF_RMAC(uint8_t band, uint32_t ofs) {
 }
 static constexpr uint32_t MT_WF_RFCR(uint8_t b) { return MT_WF_RMAC(b, 0x000); }
 static constexpr uint32_t MT_WF_RFCR_DROP_OTHER_BEACON = MTK_BIT(11);
+static constexpr uint32_t MT_WF_RFCR_DROP_OTHER_BSS = MTK_BIT(17);
+static constexpr uint32_t MT_WF_RFCR_DROP_OTHER_UC = MTK_BIT(18);
+
+static constexpr uint32_t MT7902_FILTER_FCSFAIL = MTK_BIT(2);
+static constexpr uint32_t MT7902_FILTER_CONTROL = MTK_BIT(5);
+static constexpr uint32_t MT7902_FILTER_OTHER_BSS = MTK_BIT(6);
+static constexpr uint32_t MT7902_FILTER_ENABLE = MTK_BIT(31);
 static constexpr uint32_t MT_WF_RMAC_MIB_AIRTIME0(uint8_t b) { return MT_WF_RMAC(b, 0x380); }
 static constexpr uint32_t MT_WF_RMAC_MIB_TIME0(uint8_t b) { return MT_WF_RMAC(b, 0x3c4); }
 static constexpr uint32_t MT_WF_RMAC_MIB_RXTIME_EN = MTK_BIT(30);
@@ -242,7 +249,7 @@ static constexpr uint16_t MT7902_TX_FWDL_RING_SIZE = 128;
 static constexpr uint16_t MT7902_RX_MCU_RING_SIZE = 512;  // MT7902 quirk: 512 (MT7921 uses 8)
 static constexpr uint16_t MT7902_RX_DATA_RING_SIZE = 512; // HW supports up to 1536
 static constexpr uint32_t MT7902_RX_BUF_SIZE = 2048;
-static constexpr uint32_t MT7902_WTBL_SIZE = 288;
+static constexpr uint32_t MT7902_WTBL_SIZE = 20;
 static constexpr uint32_t MT7902_TOKEN_SIZE = 1024;
 
 // Fixed BAR0 address translation entry

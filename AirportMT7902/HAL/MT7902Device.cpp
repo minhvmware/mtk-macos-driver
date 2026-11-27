@@ -2,6 +2,7 @@
 // Copyright (C) 2026 MediaTek MT7902 macOS Native Driver Project
 
 #include "MT7902Device.hpp"
+#include "../Net80211/MT7902Channels.hpp"
 
 namespace mt7902 {
 
@@ -83,76 +84,92 @@ int MT7902Device::probeAndInit() {
         return kErrNoDev;
     }
 
-    // Step 3: Reset Wi-Fi subsystem
-    err = wfsysReset();
-    if (err != kOk)
-        return err;
+    // Steps 3..8: Retry up to 6 times (matching Linux MT792x_MCU_INIT_RETRY_COUNT)
+    // to cleanly survive concurrent MT7902 USB Bluetooth WMT firmware download/reset at boot.
+    static constexpr int kMcuInitRetries = 6;
+    for (int attempt = 0; attempt < kMcuInitRetries; ++attempt) {
+        if (attempt > 0) {
+            MTK_LOG("MT7902 probeAndInit retry %d/%d after err=%d",
+                    attempt + 1, kMcuInitRetries, err);
+            (void)acquireDriverOwn();
+            mBus.sleepMs(250);
+        }
 
-    mBus.wr(MT_WFDMA0_HOST_INT_ENA, 0);
-    mBus.wr(MT_PCIE_MAC_INT_ENABLE, 0xff);
+        // Step 3: Reset Wi-Fi subsystem
+        err = wfsysReset();
+        if (err != kOk)
+            continue;
 
-    // Step 4: Initialize MT7902 WFDMA0 rings (Ring 15 MCU-WM, Ring 0 shared 512, no WA)
-    err = mDma.init();
-    if (err != kOk)
-        return err;
+        mBus.wr(MT_WFDMA0_HOST_INT_ENA, 0);
+        mBus.wr(MT_PCIE_MAC_INT_ENABLE, 0xff);
 
-    // Step 5: Band0 driver own + disable PCIe L0s before firmware download
-    err = driverOwnBand0();
-    if (err != kOk) {
-        mDma.cleanup();
-        return err;
+        // Step 4: Initialize MT7902 WFDMA0 rings (Ring 15 MCU-WM, Ring 0 shared 512, no WA)
+        err = mDma.init();
+        if (err != kOk)
+            continue;
+
+        // Step 5: Band0 driver own + disable PCIe L0s before firmware download
+        err = driverOwnBand0();
+        if (err != kOk) {
+            mDma.cleanup();
+            continue;
+        }
+        mBus.rmw(MT_PCIE_MAC_PM, MT_PCIE_MAC_PM_L0S_DIS, MT_PCIE_MAC_PM_L0S_DIS);
+
+        // Step 6: Boot MT7902 ROM patch + WM RAM firmware
+        err = mFw.loadEmbeddedAndBoot(mFwVersion);
+        if (err != kOk) {
+            mDma.cleanup();
+            continue;
+        }
+        mDma.txCleanup(kTxFwdl);
+
+        // Step 7: Query NIC capabilities (permanent MAC address, 2G/5G/6G, NSS)
+        err = mMcu.getNicCapability(mCap);
+        if (err != kOk) {
+            MTK_ERR("Failed to query MT7902 NIC capabilities (%d)", err);
+            mDma.cleanup();
+            continue;
+        }
+
+        if (!mCap.macValid) {
+            // Fallback locally administered MAC if EFUSE returned zeros
+            mCap.macAddr[0] = 0x02;
+            mCap.macAddr[1] = 0x79;
+            mCap.macAddr[2] = 0x02;
+            mCap.macAddr[3] = 0x14;
+            mCap.macAddr[4] = 0xc3;
+            mCap.macAddr[5] = 0x01;
+            mCap.macValid = true;
+        }
+
+        MTK_LOG("MT7902 MAC %02x:%02x:%02x:%02x:%02x:%02x | 2G=%d 5G=%d 6G=%d NSS=%u HE=%d",
+                mCap.macAddr[0], mCap.macAddr[1], mCap.macAddr[2],
+                mCap.macAddr[3], mCap.macAddr[4], mCap.macAddr[5],
+                mCap.has2Ghz, mCap.has5Ghz, mCap.has6Ghz, mCap.nss, mCap.supportsHe);
+
+        // Step 8: Configure EEPROM EFUSE mode + MAC hardware registers.
+        // Note: if CONNSYS Bluetooth WMT firmware has already locked shared EFUSE
+        // arbitration on warm/concurrent boot, EFUSE_BUFFER_MODE may not send EXT_ACK
+        // even though EFUSE mode is already active (verified by getNicCapability above).
+        err = mMcu.setEepromEfuseMode();
+        if (err != kOk)
+            MTK_LOG("setEepromEfuseMode returned %d (EFUSE already active via CONNSYS)", err);
+        err = mMac.initHardware();
+        if (err != kOk) {
+            mDma.cleanup();
+            continue;
+        }
+
+        // MT7902 hardware quirk (init.c:307): keep deep sleep disabled by default for stability
+        (void)mMcu.setDeepSleep(false);
+
+        mInitialized = true;
+        return kOk;
     }
-    mBus.rmw(MT_PCIE_MAC_PM, MT_PCIE_MAC_PM_L0S_DIS, MT_PCIE_MAC_PM_L0S_DIS);
 
-    // Step 6: Boot MT7902 ROM patch + WM RAM firmware
-    err = mFw.loadEmbeddedAndBoot(mFwVersion);
-    if (err != kOk) {
-        mDma.cleanup();
-        return err;
-    }
-    mDma.txCleanup(kTxFwdl);
-
-    // Step 7: Query NIC capabilities (permanent MAC address, 2G/5G/6G, NSS)
-    err = mMcu.getNicCapability(mCap);
-    if (err != kOk) {
-        MTK_ERR("Failed to query MT7902 NIC capabilities (%d)", err);
-        mDma.cleanup();
-        return err;
-    }
-
-    if (!mCap.macValid) {
-        // Fallback locally administered MAC if EFUSE returned zeros
-        mCap.macAddr[0] = 0x02;
-        mCap.macAddr[1] = 0x79;
-        mCap.macAddr[2] = 0x02;
-        mCap.macAddr[3] = 0x14;
-        mCap.macAddr[4] = 0xc3;
-        mCap.macAddr[5] = 0x01;
-        mCap.macValid = true;
-    }
-
-    MTK_LOG("MT7902 MAC %02x:%02x:%02x:%02x:%02x:%02x | 2G=%d 5G=%d 6G=%d NSS=%u HE=%d",
-            mCap.macAddr[0], mCap.macAddr[1], mCap.macAddr[2],
-            mCap.macAddr[3], mCap.macAddr[4], mCap.macAddr[5],
-            mCap.has2Ghz, mCap.has5Ghz, mCap.has6Ghz, mCap.nss, mCap.supportsHe);
-
-    // Step 8: Configure EEPROM EFUSE mode + MAC hardware registers
-    err = mMcu.setEepromEfuseMode();
-    if (err != kOk) {
-        mDma.cleanup();
-        return err;
-    }
-    err = mMac.initHardware();
-    if (err != kOk) {
-        mDma.cleanup();
-        return err;
-    }
-
-    // MT7902 hardware quirk (init.c:307): keep deep sleep disabled by default for stability
-    (void)mMcu.setDeepSleep(false);
-
-    mInitialized = true;
-    return kOk;
+    MTK_ERR("MT7902 probeAndInit exhausted %d retries (last err=%d)", kMcuInitRetries, err);
+    return err;
 }
 
 void MT7902Device::shutdown() {
@@ -183,11 +200,11 @@ int MT7902Device::startRadio() {
         return err;
     }
 
-    err = mMcu.uniAddDev(0, 0, 0, mCap.macAddr, true);
-    if (err != kOk) {
-        MTK_ERR("uniAddDev(true) failed: %d", err);
-        return err;
-    }
+    // Populate regulatory channel domain in firmware (matching __mt7921_start);
+    // must run on every startRadio() including after MAC rotation via setMacAddress().
+    ScanChannelEntry chList[64];
+    size_t chCount = buildScanChannelList(mCap.has2Ghz, mCap.has5Ghz, mCap.has6Ghz, chList, 64);
+    (void)mMcu.setChannelDomain("00", chList, chCount);
 
     ChannelConfig defCh;
     defCh.primaryChannel = 1;
@@ -195,6 +212,18 @@ int MT7902Device::startRadio() {
     defCh.band = 0;
     defCh.bw = CMD_CBW_20MHZ;
     (void)mMcu.setChannel(defCh, mCap.antennaMask);
+
+    err = mMcu.uniAddDev(0, 0, 0, mCap.macAddr, true);
+    if (err != kOk) {
+        MTK_ERR("uniAddDev(true) failed: %d", err);
+        return err;
+    }
+
+    // Enable MT7902 RX filter + clear beacon filter both via MCU (FIF_BIT_CLR) and RMAC RFCR
+    (void)mMcu.setRxFilter(MT7902_FILTER_ENABLE | MT7902_FILTER_OTHER_BSS, 0, 0);
+    (void)mMcu.setRxFilter(0, MTK_BIT(1), MT_WF_RFCR_DROP_OTHER_BEACON);
+    mBus.clear(MT_WF_RFCR(0),
+               MT_WF_RFCR_DROP_OTHER_BEACON | MT_WF_RFCR_DROP_OTHER_BSS | MT_WF_RFCR_DROP_OTHER_UC);
 
     mRadioRunning = true;
     MTK_LOG("MT7902 radio enabled successfully");
@@ -271,28 +300,34 @@ int MT7902Device::resetHardware() {
     return err;
 }
 
+void MT7902Device::handleRxPacket(const uint8_t *buf, size_t len) {
+    ParsedRxFrame meta;
+    if (!MT7902Mac::parseRxDescriptor(buf, len, mCap.antennaMask, meta) || !meta.valid) {
+        mRxParseFailCount++;
+        return;
+    }
+
+    mRxNormalCount++;
+    mMac.recordRxBytes(meta.payloadLen);
+    if (meta.rssi < 0 && meta.rssi > -120)
+        mLastRssi = meta.rssi;
+
+    const uint8_t *payload = buf + meta.payloadOffset;
+    if (mRxCb) {
+        if (meta.is8023)
+            mRxCb->onRxEthernetFrame(payload, meta.payloadLen, meta);
+        else
+            mRxCb->onRx80211Frame(payload, meta.payloadLen, meta);
+    }
+}
+
 void MT7902Device::drainRxData() {
     uint8_t buf[MT7902_RX_BUF_SIZE];
     size_t len = 0;
-    for (int i = 0; i < 64; ++i) {
+    for (int i = 0; i < 512; ++i) {
         if (mDma.rxDequeue(kRxData, buf, sizeof(buf), len) != kOk)
             break;
-
-        ParsedRxFrame meta;
-        if (!MT7902Mac::parseRxDescriptor(buf, len, mCap.antennaMask, meta) || !meta.valid)
-            continue;
-
-        mMac.recordRxBytes(meta.payloadLen);
-        if (meta.rssi < 0 && meta.rssi > -120)
-            mLastRssi = meta.rssi;
-
-        const uint8_t *payload = buf + meta.payloadOffset;
-        if (mRxCb) {
-            if (meta.is8023)
-                mRxCb->onRxEthernetFrame(payload, meta.payloadLen, meta);
-            else
-                mRxCb->onRx80211Frame(payload, meta.payloadLen, meta);
-        }
+        handleRxPacket(buf, len);
     }
 }
 
@@ -306,12 +341,8 @@ void MT7902Device::serviceInterrupt() {
         mDma.txCleanup(kTxFwdl);
         mDma.txCleanup(kTxBand0);
     }
-    // Drain RX Ring 2 (802.11 Beacons/Mgmt/Data) BEFORE RX Ring 0 (MCU events)
-    // so in-flight scan beacons are delivered before MCU_EVENT_SCAN_DONE fires.
-    if (st.rxData || st.mcuWakeRx)
-        drainRxData();
-    if (st.rxMcuEvent)
-        mMcu.drainRxEvents();
+    drainRxData();
+    mMcu.drainRxEvents();
 }
 
 int MT7902Device::sendEthernetFrame(const uint8_t *frame, size_t len, uint16_t wcid,
@@ -346,6 +377,12 @@ int MT7902Device::send80211Frame(const uint8_t *frame, size_t len, uint16_t wcid
 }
 
 void MT7902Device::onScanComplete(uint8_t seqNum) {
+    uint32_t rx2Dma = mBus.rr(MT_RX_DATA_RING_BASE + MT_RING_REG_DMA_IDX);
+    uint32_t rx0Dma = mBus.rr(MT_RX_EVENT_RING_BASE + MT_RING_REG_DMA_IDX);
+    uint32_t rfcr0 = mBus.rr(MT_WF_RFCR(0));
+    drainRxData();
+    MTK_LOG("HW scan done seq=%u rx2_dma=%u rx0_dma=%u rx_ok=%u rx_fail=%u rfcr0=0x%08x",
+            seqNum, rx2Dma, rx0Dma, mRxNormalCount, mRxParseFailCount, rfcr0);
     if (mRxCb)
         mRxCb->onScanComplete(seqNum);
 }
@@ -362,6 +399,10 @@ void MT7902Device::onTxFreePacket(const uint8_t *data, size_t len) {
 void MT7902Device::onTxStatusPacket(const uint8_t *data, size_t len) {
     (void)data;
     (void)len;
+}
+
+void MT7902Device::onRxNormalPacket(const uint8_t *data, size_t len) {
+    handleRxPacket(data, len);
 }
 
 void MT7902Device::onRssiNotify(int32_t rssi) {

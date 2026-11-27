@@ -25,6 +25,9 @@ class AirportMT7902SkywalkInterface : public IO80211InfraProtocol {
 public:
     bool initWithController(AirportMT7902 *ctrl, mt7902::MT7902Sta *sta);
     virtual bool init(IOService *provider) MTK_SKYWALK_OVERRIDE;
+#ifdef AIRPORT_WCL
+    IOWorkLoop *getWorkLoop() const override;
+#endif
 
     // Event notifications from AirportMT7902 (IStaEventListener)
     void notifyDriverAvailable(bool ready);

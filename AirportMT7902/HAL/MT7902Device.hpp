@@ -59,6 +59,7 @@ public:
     void onBeaconLoss(uint8_t bssIdx, uint8_t reason) override;
     void onTxFreePacket(const uint8_t *data, size_t len) override;
     void onTxStatusPacket(const uint8_t *data, size_t len) override;
+    void onRxNormalPacket(const uint8_t *data, size_t len) override;
     void onRssiNotify(int32_t rssi) override;
     void onFirmwareAssert() override;
 
@@ -76,6 +77,7 @@ public:
 
 private:
     int driverOwnBand0();
+    void handleRxPacket(const uint8_t *buf, size_t len);
     void drainRxData();
 
     IMT7902Bus &mBus;
@@ -92,6 +94,8 @@ private:
     bool mRadioRunning = false;
     bool mSuspended = false;
     int32_t mLastRssi = -65;
+    uint32_t mRxNormalCount = 0;
+    uint32_t mRxParseFailCount = 0;
 };
 
 } // namespace mt7902

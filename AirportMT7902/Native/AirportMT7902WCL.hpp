@@ -253,10 +253,23 @@ static inline bool decodeScan(const void *buffer, size_t length, DecodedScanRequ
         const uint8_t *entry = p + 0x58 + static_cast<size_t>(i) * 12;
         uint32_t ch = rd32(entry + 4);
         uint32_t flags = rd32(entry + 8);
-        if (!ch || ch > 196 || (flags & 0x2000) ||
-            ((flags & 0x8) && ch > 14) || ((flags & 0x10) && ch <= 14))
+        // Exact WCL band-flag rule from ~/Documents/wifi/native/WCLScanMessages.cpp:
+        // 0x2000 without 0x10 denotes 6 GHz; 5 GHz carries 0x2010 (0x2000 | 0x10).
+        uint32_t band = (flags & 0x10U) ? 0x10U : (flags & 0x2018U);
+        if (!ch || ch > 196 || band != (ch <= 14 ? 0x8U : 0x10U))
             continue;
         out.channels[ch / 8] |= static_cast<uint8_t>(1U << (ch % 8));
+    }
+    return true;
+}
+
+static inline bool validIeChain(const uint8_t *ies, size_t len) {
+    if (!ies && len > 0)
+        return false;
+    for (size_t at = 0; at < len;) {
+        if (len - at < 2 || ies[at + 1] > len - at - 2)
+            return false;
+        at += 2 + ies[at + 1];
     }
     return true;
 }

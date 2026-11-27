@@ -77,6 +77,7 @@ public:
     virtual void onBeaconLoss(uint8_t bssIdx, uint8_t reason) = 0;
     virtual void onTxFreePacket(const uint8_t *data, size_t len) = 0;
     virtual void onTxStatusPacket(const uint8_t *data, size_t len) = 0;
+    virtual void onRxNormalPacket(const uint8_t *data, size_t len) = 0;
     virtual void onRssiNotify(int32_t rssi) = 0;
     virtual void onFirmwareAssert() = 0;
 };
@@ -117,7 +118,7 @@ public:
     int setMacEnable(uint8_t band, bool enable);
     int setChannelInfo(const ChannelConfig &ch, uint8_t antennaMask, uint32_t cmd);
     int setChannel(const ChannelConfig &ch, uint8_t antennaMask);
-    int setRxFilter(uint32_t bitOp, uint32_t bitMap);
+    int setRxFilter(uint32_t fif, uint8_t bitOp, uint32_t bitMap);
     int setChannelDomain(const char alpha2[2], const ScanChannelEntry *channels, size_t count);
     int setDeepSleep(bool enable);
     int setHifSuspend(bool suspend);
