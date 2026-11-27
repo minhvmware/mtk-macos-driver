@@ -162,6 +162,7 @@ int MT7902Device::probeAndInit() {
             mDma.cleanup();
             continue;
         }
+        (void)mMcu.setRtsThreshold(0x92b, 0);
 
         // MT7902 hardware quirk (init.c:307): keep deep sleep disabled by default for stability
         (void)mMcu.setDeepSleep(false);
@@ -372,7 +373,7 @@ int MT7902Device::sendEthernetFrame(const uint8_t *frame, size_t len, uint16_t w
 }
 
 int MT7902Device::send80211Frame(const uint8_t *frame, size_t len, uint16_t wcid,
-                                 bool protect, bool noAck) {
+                                 bool protect, bool noAck, bool fiveGhz) {
     if (!mRadioRunning)
         return kErrIO;
     TxPacketOptions opts;
@@ -382,7 +383,10 @@ int MT7902Device::send80211Frame(const uint8_t *frame, size_t len, uint16_t wcid
     opts.protect = protect;
     opts.noAck = noAck;
     opts.fixedRate = true;
-    opts.fixedRateVal = 0; // Lowest basic rate for management frames
+    // Lowest basic rate per band: CCK 1 Mbps (0x0000) on 2.4 GHz, OFDM 6 Mbps (0x004b) on 5/6 GHz
+    opts.fixedRateVal = fiveGhz
+                            ? static_cast<uint16_t>((static_cast<uint16_t>(MT_PHY_TYPE_OFDM) << 6) | 0x0bU)
+                            : 0x0000U;
     if (len >= 10)
         opts.multicast = (frame[4] & 1U) != 0;
     return mMac.transmitFrame(frame, len, opts);

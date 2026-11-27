@@ -121,6 +121,7 @@ static constexpr uint32_t MT_TXD6_FIXED_BW = MTK_BIT(2);
 // TXD DW7
 static constexpr uint32_t MT_TXD7_TYPE = genmask32(21, 20);
 static constexpr uint32_t MT_TXD7_SUB_TYPE = genmask32(19, 16);
+static constexpr uint32_t MT_TXD7_SPE_IDX = genmask32(15, 11);
 static constexpr uint32_t MT_TXD7_HW_AMSDU = MTK_BIT(10);
 
 // Hardware TXP appended after 32-byte TXD for PCIe MT7902 (is_mt76_fw_txp == false)

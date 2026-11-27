@@ -52,8 +52,11 @@ struct StaUpdateParams {
     uint16_t wcid = 1;
     uint16_t aid = 0;
     uint8_t peerMac[6] = {};
-    uint8_t state = CONN_STATE_CONNECT;
+    uint8_t state = CONN_STATE_PORT_SECURE;
+    uint8_t staState = MT76_STA_INFO_STATE_NONE;
+    uint8_t band = 0; // 0: 2.4GHz, 1: 5GHz, 2: 6GHz
     bool qos = true;
+    bool ht = true;
     bool enable = true;
     bool newly = true;
     bool broadcast = false;
@@ -122,15 +125,20 @@ public:
     int setChannelDomain(const char alpha2[2], const ScanChannelEntry *channels, size_t count);
     int setDeepSleep(bool enable);
     int setHifSuspend(bool suspend);
+    int setRtsThreshold(uint32_t val, uint8_t band);
+    int setEdcaParams(uint8_t bssIdx, bool qos);
 
-    // Device / BSS / STA / Security / Scan
+    // Device / BSS / STA / Security / ROC / Scan
     int uniAddDev(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
                   const uint8_t macAddr[6], bool enable);
+    int uniSetChctx(uint8_t bssIdx, const ChannelConfig &ch, uint8_t antennaMask);
     int uniAddBss(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
                   const uint8_t bssid[6], const ChannelConfig &ch,
                   uint16_t bcnInterval, uint8_t dtimPeriod, bool qos, bool enable);
     int uniUpdateSta(const StaUpdateParams &p);
     int uniSetKey(const KeyInstallParams &p);
+    int acquireRoc(uint8_t bssIdx, const ChannelConfig &ch, uint32_t durationMs, bool joinReq);
+    int abortRoc(uint8_t bssIdx);
     int setBssConnected(uint8_t bssIdx, uint16_t aid, uint16_t bcnInterval,
                         uint8_t dtimPeriod, bool enable);
     int startHwScan(const ScanRequestParams &params);
@@ -150,6 +158,9 @@ private:
     IMcuEventObserver *mObserver = nullptr;
     uint8_t mMsgSeq = 0;
     uint8_t mScanSeq = 0;
+    uint8_t mRocTokenId = 0;
+    bool mRocGranted = false;
+    bool mRocActive = false;
 
     // Synchronous response slot (single in-flight MCU command at a time)
     bool mWaitingResp = false;

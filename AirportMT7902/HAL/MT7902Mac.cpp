@@ -194,10 +194,10 @@ void MT7902Mac::buildTxwi(Mt7902Txwi &out, const uint8_t *frame, size_t frameLen
     putLe32(&out.txd[7], dw7);
 
     // Hardware TXP: token ID + single contiguous DMA payload pointer
+    // Connac2 (MT7902/MT7921) uses ONLY MT_TXD_LEN_LAST (BIT(15)), never MT_TXD_LEN_MSDU_LAST!
     putLe16(&out.txp.msdu_id[0], static_cast<uint16_t>(tokenId | MT_MSDU_ID_VALID));
     putLe32(&out.txp.ptr[0].buf0, static_cast<uint32_t>(payloadPhys & 0xffffffffU));
-    uint16_t len0 = static_cast<uint16_t>((frameLen & MT_TXD_LEN_MASK) |
-                                          MT_TXD_LEN_LAST | MT_TXD_LEN_MSDU_LAST);
+    uint16_t len0 = static_cast<uint16_t>((frameLen & MT_TXD_LEN_MASK) | MT_TXD_LEN_LAST);
     putLe16(&out.txp.ptr[0].len0, len0);
 }
 
@@ -263,8 +263,11 @@ uint32_t MT7902Mac::handleTxFree(const uint8_t *data, size_t len,
         uint32_t txCnt = fieldGet(MT_TX_FREE_COUNT, info);
         if (txCnt > 1)
             mStats.txRetries += (txCnt - 1U);
-        if (stat != 0)
+        if (stat != 0) {
             mStats.txFailed++;
+            if (mStats.txFailed <= 16)
+                MTK_LOG("TX free failed: status=%u retries=%u token=%u", stat, txCnt, msduId);
+        }
 
         TxTokenSlot slot;
         if (releaseToken(msduId, slot)) {

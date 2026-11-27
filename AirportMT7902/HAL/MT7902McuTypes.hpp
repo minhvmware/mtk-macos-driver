@@ -297,10 +297,48 @@ static constexpr uint16_t STA_REC_RA = 0x01;
 static constexpr uint16_t STA_REC_STATE = 0x07;
 static constexpr uint16_t STA_REC_HT = 0x09;
 static constexpr uint16_t STA_REC_VHT = 0x0a;
-static constexpr uint16_t STA_REC_KEY_V2 = 0x0e;
+static constexpr uint16_t STA_REC_KEY = 0x0c;
+static constexpr uint16_t STA_REC_WTBL = 0x0d;
+static constexpr uint16_t STA_REC_HE = 0x0e;
+static constexpr uint16_t STA_REC_KEY_V2 = 0x11;
 static constexpr uint16_t STA_REC_PHY = 0x15;
-static constexpr uint16_t STA_REC_HE = 0x17;
-static constexpr uint16_t STA_REC_REMOVE = 0x1e;
+static constexpr uint16_t STA_REC_HE_6G = 0x17;
+static constexpr uint16_t STA_REC_REMOVE = 0x25;
+
+// WTBL nested TLV IDs & operations (matching Linux mt76_connac_mcu.h)
+static constexpr uint16_t WTBL_GENERIC = 0x00;
+static constexpr uint16_t WTBL_RX = 0x01;
+static constexpr uint16_t WTBL_HT = 0x02;
+static constexpr uint16_t WTBL_VHT = 0x03;
+static constexpr uint16_t WTBL_HDR_TRANS = 0x06;
+static constexpr uint16_t WTBL_SMPS = 0x0d;
+
+static constexpr uint8_t WTBL_RESET_AND_SET = 1;
+static constexpr uint8_t WTBL_SET = 2;
+
+// STA_REC_STATE values (enum mt76_sta_info_state)
+static constexpr uint8_t MT76_STA_INFO_STATE_NONE = 0;
+static constexpr uint8_t MT76_STA_INFO_STATE_AUTH = 1;
+static constexpr uint8_t MT76_STA_INFO_STATE_ASSOC = 2;
+
+// STA_REC_RA legacy rate bitmasks
+static constexpr uint16_t RA_LEGACY_CCK = static_cast<uint16_t>(genmask32(3, 0));
+static constexpr uint16_t RA_LEGACY_OFDM = static_cast<uint16_t>(genmask32(13, 6));
+
+// PHY_TYPE_BIT_* for STA_REC_PHY & BSS nonht_basic_phy
+static constexpr uint8_t PHY_TYPE_BIT_HR_DSSS = static_cast<uint8_t>(MTK_BIT(0));
+static constexpr uint8_t PHY_TYPE_BIT_ERP = static_cast<uint8_t>(MTK_BIT(1));
+static constexpr uint8_t PHY_TYPE_BIT_OFDM = static_cast<uint8_t>(MTK_BIT(3));
+static constexpr uint8_t PHY_TYPE_BIT_HT = static_cast<uint8_t>(MTK_BIT(4));
+static constexpr uint8_t PHY_TYPE_BIT_VHT = static_cast<uint8_t>(MTK_BIT(5));
+static constexpr uint8_t PHY_TYPE_BIT_HE = static_cast<uint8_t>(MTK_BIT(6));
+
+// ROC (Remain-On-Channel / Join channel privilege) TLV & request types
+static constexpr uint16_t UNI_ROC_ACQUIRE = 0;
+static constexpr uint16_t UNI_ROC_ABORT = 1;
+static constexpr uint8_t MT7921_ROC_REQ_JOIN = 0;
+static constexpr uint8_t MT7921_ROC_REQ_ROC = 1;
+static constexpr uint16_t UNI_EVENT_ROC_GRANT = 0;
 
 enum McuCipherType : uint8_t {
     MCU_CIPHER_NONE = 0,
@@ -418,6 +456,22 @@ struct __attribute__((packed)) StaRecBasicTlv {
     uint16_t extra_info; // BIT(0)=VER, BIT(1)=NEW
 };
 
+struct __attribute__((packed)) StaRecHtTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint16_t ht_cap;
+    uint16_t rsv;
+};
+static_assert(sizeof(StaRecHtTlv) == 8, "StaRecHtTlv must be 8 bytes");
+
+struct __attribute__((packed)) StaRecRaInfoTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint16_t legacy;
+    uint8_t rx_mcs_bitmask[10];
+};
+static_assert(sizeof(StaRecRaInfoTlv) == 16, "StaRecRaInfoTlv must be 16 bytes");
+
 struct __attribute__((packed)) StaRecStateTlv {
     uint16_t tag;
     uint16_t len;
@@ -439,6 +493,121 @@ struct __attribute__((packed)) StaRecPhyTlv {
     uint8_t max_ampdu_len;
     uint8_t rsv;
 };
+
+struct __attribute__((packed)) McuTlvHdr {
+    uint16_t tag;
+    uint16_t len;
+};
+static_assert(sizeof(McuTlvHdr) == 4, "McuTlvHdr must be 4 bytes");
+
+struct __attribute__((packed)) WtblReqHdr {
+    uint8_t wlan_idx_lo;
+    uint8_t operation;
+    uint16_t tlv_num;
+    uint8_t wlan_idx_hi;
+    uint8_t rsv[3];
+};
+static_assert(sizeof(WtblReqHdr) == 8, "WtblReqHdr must be 8 bytes");
+
+struct __attribute__((packed)) WtblGenericTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t peer_addr[6];
+    uint8_t muar_idx;
+    uint8_t skip_tx;
+    uint8_t cf_ack;
+    uint8_t qos;
+    uint8_t mesh;
+    uint8_t adm;
+    uint16_t partial_aid;
+    uint8_t baf_en;
+    uint8_t aad_om;
+};
+static_assert(sizeof(WtblGenericTlv) == 20, "WtblGenericTlv must be 20 bytes");
+
+struct __attribute__((packed)) WtblRxTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t rcid;
+    uint8_t rca1;
+    uint8_t rca2;
+    uint8_t rv;
+    uint8_t rsv[4];
+};
+static_assert(sizeof(WtblRxTlv) == 12, "WtblRxTlv must be 12 bytes");
+
+struct __attribute__((packed)) WtblHdrTransTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t to_ds;
+    uint8_t from_ds;
+    uint8_t no_rx_trans;
+    uint8_t rsv;
+};
+static_assert(sizeof(WtblHdrTransTlv) == 8, "WtblHdrTransTlv must be 8 bytes");
+
+struct __attribute__((packed)) WtblHtTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t ht;
+    uint8_t ldpc;
+    uint8_t af;
+    uint8_t mm;
+    uint8_t rsv[4];
+};
+static_assert(sizeof(WtblHtTlv) == 12, "WtblHtTlv must be 12 bytes");
+
+struct __attribute__((packed)) RocAcquireReq {
+    uint8_t rsv_hdr[4];
+    uint16_t tag;
+    uint16_t len;
+    uint8_t bss_idx;
+    uint8_t tokenid;
+    uint8_t control_channel;
+    uint8_t sco;
+    uint8_t band; // 1: 2.4GHz, 2: 5GHz, 3: 6GHz
+    uint8_t bw;
+    uint8_t center_chan;
+    uint8_t center_chan2;
+    uint8_t bw_from_ap;
+    uint8_t center_chan_from_ap;
+    uint8_t center_chan2_from_ap;
+    uint8_t reqtype; // 0=JOIN, 1=ROC
+    uint32_t maxinterval;
+    uint8_t dbdcband;
+    uint8_t rsv[3];
+};
+static_assert(sizeof(RocAcquireReq) == 28, "RocAcquireReq must be 28 bytes");
+
+struct __attribute__((packed)) RocAbortReq {
+    uint8_t rsv_hdr[4];
+    uint16_t tag;
+    uint16_t len;
+    uint8_t bss_idx;
+    uint8_t tokenid;
+    uint8_t dbdcband;
+    uint8_t rsv[5];
+};
+static_assert(sizeof(RocAbortReq) == 16, "RocAbortReq must be 16 bytes");
+
+struct __attribute__((packed)) Mt7902EdcaAc {
+    uint16_t cw_min;
+    uint16_t cw_max;
+    uint16_t txop;
+    uint16_t aifs;
+    uint8_t guardtime;
+    uint8_t acm;
+};
+static_assert(sizeof(Mt7902EdcaAc) == 10, "Mt7902EdcaAc must be 10 bytes");
+
+struct __attribute__((packed)) Mt7902EdcaReq {
+    Mt7902EdcaAc edca[4];
+    uint8_t bss_idx;
+    uint8_t qos;
+    uint8_t wmm_idx;
+    uint8_t pad;
+};
+static_assert(sizeof(Mt7902EdcaReq) == 44, "Mt7902EdcaReq must be 44 bytes");
 
 struct __attribute__((packed)) SecKeyEntry {
     uint8_t cipher_id;

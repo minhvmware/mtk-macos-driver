@@ -152,8 +152,29 @@ void MT7902Mcu::processRxRing0Packet(const uint8_t *pkt, size_t len) {
         return;
 
     const auto *rxd = reinterpret_cast<const Mt76Connac2McuRxd *>(pkt);
-    bool unsolicited = (rxd->option & MCU_UNI_CMD_UNSOLICITED_EVENT) != 0 ||
-                       rxd->seq == 0 ||
+    if (rxd->option & MCU_UNI_CMD_UNSOLICITED_EVENT) {
+        const uint8_t *body = pkt + sizeof(Mt76Connac2McuRxd);
+        size_t bodyLen = len - sizeof(Mt76Connac2McuRxd);
+        if (rxd->eid == MCU_UNI_EVENT_ROC) {
+            mRocGranted = true;
+        } else if ((rxd->eid == MCU_EVENT_SCAN_DONE || rxd->eid == MCU_EVENT_SCHED_SCAN_DONE) &&
+                   mObserver && bodyLen >= 1) {
+            mObserver->onScanComplete(body[0]);
+        }
+        return;
+    }
+
+    if (rxd->eid == 0x06) {
+        if (mWaitingResp && rxd->seq == mWaitSeq) {
+            size_t copyLen = len < sizeof(mRespStorage) ? len : sizeof(mRespStorage);
+            memcpy(mRespStorage, pkt, copyLen);
+            mRespSize = copyLen;
+            mRespReceived = true;
+        }
+        return;
+    }
+
+    bool unsolicited = rxd->seq == 0 ||
                        rxd->eid == MCU_EVENT_SCAN_DONE ||
                        rxd->eid == MCU_EVENT_SCHED_SCAN_DONE ||
                        rxd->eid == MCU_EVENT_BSS_BEACON_LOSS ||
@@ -529,6 +550,42 @@ int MT7902Mcu::setHifSuspend(bool suspend) {
     return sendMessage(MCU_UNI_CMD_HIF_CTRL, &req, sizeof(req), true);
 }
 
+int MT7902Mcu::setRtsThreshold(uint32_t val, uint8_t band) {
+    struct __attribute__((packed)) {
+        uint8_t prot_idx;
+        uint8_t band;
+        uint8_t rsv[2];
+        uint32_t len_thresh;
+        uint32_t pkt_thresh;
+    } req;
+    memset(&req, 0, sizeof(req));
+    req.prot_idx = 1;
+    req.band = band;
+    putLe32(&req.len_thresh, val);
+    putLe32(&req.pkt_thresh, 2);
+    return sendMessage(MCU_EXT_CMD_PROTECT_CTRL, &req, sizeof(req), true);
+}
+
+int MT7902Mcu::setEdcaParams(uint8_t bssIdx, bool qos) {
+    // Match Linux mt7921_mcu_set_tx() WMM/EDCA defaults (ACI order: BE=0, BK=1, VI=2, VO=3)
+    Mt7902EdcaReq req;
+    memset(&req, 0, sizeof(req));
+    static constexpr uint16_t kAifs[4]  = { 3, 7, 2, 2 };
+    static constexpr uint16_t kCwMin[4] = { 4, 4, 3, 2 };
+    static constexpr uint16_t kCwMax[4] = { 10, 10, 4, 3 };
+    static constexpr uint16_t kTxop[4]  = { 0, 0, 94, 47 };
+    for (int ac = 0; ac < 4; ++ac) {
+        putLe16(&req.edca[ac].cw_min, kCwMin[ac]);
+        putLe16(&req.edca[ac].cw_max, kCwMax[ac]);
+        putLe16(&req.edca[ac].txop, kTxop[ac]);
+        putLe16(&req.edca[ac].aifs, kAifs[ac]);
+    }
+    req.bss_idx = bssIdx;
+    req.qos = qos ? 1 : 0;
+    req.wmm_idx = 0;
+    return sendMessage(MCU_CE_CMD_SET_EDCA_PARMS, &req, sizeof(req), false);
+}
+
 int MT7902Mcu::uniAddDev(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
                          const uint8_t macAddr[6], bool enable) {
     UniDevInfoReq devReq;
@@ -571,6 +628,35 @@ int MT7902Mcu::uniAddDev(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
     }
 }
 
+int MT7902Mcu::uniSetChctx(uint8_t bssIdx, const ChannelConfig &ch, uint8_t antennaMask) {
+    struct __attribute__((packed)) {
+        uint8_t bss_idx;
+        uint8_t pad[3];
+        BssRlmTlv rlm;
+    } req;
+    memset(&req, 0, sizeof(req));
+    req.bss_idx = bssIdx;
+    putLe16(&req.rlm.tag, UNI_BSS_INFO_RLM);
+    putLe16(&req.rlm.len, sizeof(BssRlmTlv));
+    req.rlm.control_channel = ch.primaryChannel;
+    uint8_t center = ch.centerChannel ? ch.centerChannel : ch.primaryChannel;
+    req.rlm.center_chan = center;
+    req.rlm.center_chan2 = ch.centerChannel2;
+    req.rlm.bw = ch.bw;
+    uint8_t nss = static_cast<uint8_t>(popcount8(antennaMask));
+    if (nss == 0) nss = 1;
+    req.rlm.tx_streams = nss;
+    req.rlm.rx_streams = antennaMask ? antennaMask : 1;
+    req.rlm.short_st = 1;
+    req.rlm.ht_op_info = (ch.bw == CMD_CBW_20MHZ) ? 0 : 4;
+    if (ch.primaryChannel < center)
+        req.rlm.sco = 1; // SCA
+    else if (ch.primaryChannel > center)
+        req.rlm.sco = 3; // SCB
+    req.rlm.band = ch.band; // NL80211_BAND_* (0=2G, 1=5G, 2=6G)
+    return sendMessage(MCU_UNI_CMD_BSS_INFO_UPDATE, &req, sizeof(req), true);
+}
+
 int MT7902Mcu::uniAddBss(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
                          const uint8_t bssid[6], const ChannelConfig &ch,
                          uint16_t bcnInterval, uint8_t dtimPeriod, bool qos, bool enable) {
@@ -579,7 +665,6 @@ int MT7902Mcu::uniAddBss(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
         uint8_t pad[3];
         BssBasicTlv basic;
         BssQosTlv qos;
-        BssRlmTlv rlm;
     } req;
     memset(&req, 0, sizeof(req));
     req.bss_idx = bssIdx;
@@ -599,14 +684,17 @@ int MT7902Mcu::uniAddBss(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
     req.basic.dtim_period = dtimPeriod ? dtimPeriod : 1;
     if (ch.band == 0) {
         req.basic.phymode = PHY_MODE_B | PHY_MODE_G | PHY_MODE_GN | PHY_MODE_AX_24G;
-        putLe16(&req.basic.nonht_basic_phy, PHY_MODE_B | PHY_MODE_G);
+        putLe16(&req.basic.nonht_basic_phy,
+                PHY_TYPE_BIT_HR_DSSS | PHY_TYPE_BIT_ERP | PHY_TYPE_BIT_HT | PHY_TYPE_BIT_HE);
     } else if (ch.band == 2) {
         req.basic.phymode = PHY_MODE_A | PHY_MODE_AN | PHY_MODE_AC;
         req.basic.phymode_ext = PHY_MODE_AX_6G;
-        putLe16(&req.basic.nonht_basic_phy, PHY_MODE_A);
+        putLe16(&req.basic.nonht_basic_phy,
+                PHY_TYPE_BIT_OFDM | PHY_TYPE_BIT_HT | PHY_TYPE_BIT_VHT | PHY_TYPE_BIT_HE);
     } else {
         req.basic.phymode = PHY_MODE_A | PHY_MODE_AN | PHY_MODE_AC | PHY_MODE_AX_5G;
-        putLe16(&req.basic.nonht_basic_phy, PHY_MODE_A);
+        putLe16(&req.basic.nonht_basic_phy,
+                PHY_TYPE_BIT_OFDM | PHY_TYPE_BIT_HT | PHY_TYPE_BIT_VHT | PHY_TYPE_BIT_HE);
     }
     putLe16(&req.basic.sta_idx, bmcWcid);
 
@@ -614,58 +702,227 @@ int MT7902Mcu::uniAddBss(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
     putLe16(&req.qos.len, sizeof(BssQosTlv));
     req.qos.qos = qos ? 1 : 0;
 
-    putLe16(&req.rlm.tag, UNI_BSS_INFO_RLM);
-    putLe16(&req.rlm.len, sizeof(BssRlmTlv));
-    req.rlm.control_channel = ch.primaryChannel;
-    req.rlm.center_chan = ch.centerChannel ? ch.centerChannel : ch.primaryChannel;
-    req.rlm.center_chan2 = ch.centerChannel2;
-    req.rlm.bw = ch.bw;
-    req.rlm.tx_streams = 1;
-    req.rlm.rx_streams = 1;
-    req.rlm.band = static_cast<uint8_t>(ch.band + 1U);
-
-    return sendMessage(MCU_UNI_CMD_BSS_INFO_UPDATE, &req, sizeof(req), true);
+    int err = sendMessage(MCU_UNI_CMD_BSS_INFO_UPDATE, &req, sizeof(req), true);
+    if (err != kOk)
+        return err;
+    if (enable)
+        return uniSetChctx(bssIdx, ch, 1);
+    return kOk;
 }
 
 int MT7902Mcu::uniUpdateSta(const StaUpdateParams &p) {
-    struct __attribute__((packed)) {
-        StaReqHdr hdr;
-        StaRecBasicTlv basic;
-        StaRecStateTlv state;
-        StaRecPhyTlv phy;
-    } req;
+    // Wire-exact match to Linux mt76_connac_mcu_sta_cmd() with offload_fw = true
+    uint8_t buf[512];
+    memset(buf, 0, sizeof(buf));
+    size_t pos = 0;
+
+    auto *hdr = reinterpret_cast<StaReqHdr *>(buf);
+    pos += sizeof(StaReqHdr);
+    hdr->bss_idx = p.bssIdx;
+    hdr->wlan_idx_lo = static_cast<uint8_t>(p.wcid & 0xffU);
+    hdr->wlan_idx_hi = static_cast<uint8_t>((p.wcid >> 8) & 0xffU);
+    hdr->is_tlv_append = 1;
+    hdr->muar_idx = p.broadcast ? 0x0eU : 0x00U;
+    uint16_t topTlvs = 0;
+
+    // 1. STA_REC_BASIC (non-BMC peer STA only; BMC uses offload_fw = true -> WTBL only)
+    if (!p.broadcast) {
+        auto *basic = reinterpret_cast<StaRecBasicTlv *>(buf + pos);
+        pos += sizeof(StaRecBasicTlv);
+        putLe16(&basic->tag, STA_REC_BASIC);
+        putLe16(&basic->len, sizeof(StaRecBasicTlv));
+        putLe32(&basic->conn_type, CONNECTION_INFRA_AP);
+        basic->conn_state = p.enable ? CONN_STATE_PORT_SECURE : CONN_STATE_DISCONNECT;
+        basic->qos = p.qos ? 1 : 0;
+        putLe16(&basic->aid, p.aid);
+        memcpy(basic->peer_addr, p.peerMac, 6);
+        uint16_t extra = MTK_BIT(0); // EXTRA_INFO_VER
+        if (p.newly && p.enable)
+            extra |= MTK_BIT(1);     // EXTRA_INFO_NEW
+        putLe16(&basic->extra_info, extra);
+        topTlvs++;
+    }
+
+    // 2. Peer STA capability / PHY / RA / STATE TLVs (only when enabling non-BMC peer)
+    if (!p.broadcast && p.enable) {
+        if (p.ht) {
+            auto *ht = reinterpret_cast<StaRecHtTlv *>(buf + pos);
+            pos += sizeof(StaRecHtTlv);
+            putLe16(&ht->tag, STA_REC_HT);
+            putLe16(&ht->len, sizeof(StaRecHtTlv));
+            putLe16(&ht->ht_cap, 0x01ef);
+            topTlvs++;
+        }
+
+        auto *phy = reinterpret_cast<StaRecPhyTlv *>(buf + pos);
+        pos += sizeof(StaRecPhyTlv);
+        putLe16(&phy->tag, STA_REC_PHY);
+        putLe16(&phy->len, sizeof(StaRecPhyTlv));
+        if (p.band == 0) {
+            putLe16(&phy->basic_rate, 0x000f);
+            phy->phy_type = static_cast<uint8_t>(
+                PHY_TYPE_BIT_HR_DSSS | PHY_TYPE_BIT_ERP | (p.ht ? PHY_TYPE_BIT_HT : 0));
+        } else {
+            putLe16(&phy->basic_rate, 0x0015);
+            phy->phy_type = static_cast<uint8_t>(
+                PHY_TYPE_BIT_OFDM | (p.ht ? PHY_TYPE_BIT_HT : 0));
+        }
+        phy->ampdu = 0x1b;
+        phy->rcpi = rssiToRcpi(p.rssi);
+        topTlvs++;
+
+        auto *ra = reinterpret_cast<StaRecRaInfoTlv *>(buf + pos);
+        pos += sizeof(StaRecRaInfoTlv);
+        putLe16(&ra->tag, STA_REC_RA);
+        putLe16(&ra->len, sizeof(StaRecRaInfoTlv));
+        uint16_t legacy = (p.band == 0)
+                              ? static_cast<uint16_t>((0xffU << 6) | 0x0fU)
+                              : static_cast<uint16_t>(0xffU << 6);
+        putLe16(&ra->legacy, legacy);
+        if (p.ht)
+            ra->rx_mcs_bitmask[0] = 0xff;
+        topTlvs++;
+
+        auto *st = reinterpret_cast<StaRecStateTlv *>(buf + pos);
+        pos += sizeof(StaRecStateTlv);
+        putLe16(&st->tag, STA_REC_STATE);
+        putLe16(&st->len, sizeof(StaRecStateTlv));
+        st->state = p.staState;
+        topTlvs++;
+    }
+
+    // 3. STA_REC_WTBL container (mandatory on Connac2 for both add/update and remove)
+    auto *staWtbl = reinterpret_cast<McuTlvHdr *>(buf + pos);
+    pos += sizeof(McuTlvHdr);
+    putLe16(&staWtbl->tag, STA_REC_WTBL);
+    uint16_t wtblContainerLen = sizeof(McuTlvHdr);
+    topTlvs++;
+
+    auto *wtblHdr = reinterpret_cast<WtblReqHdr *>(buf + pos);
+    pos += sizeof(WtblReqHdr);
+    wtblContainerLen += sizeof(WtblReqHdr);
+    wtblHdr->wlan_idx_lo = static_cast<uint8_t>(p.wcid & 0xffU);
+    wtblHdr->wlan_idx_hi = static_cast<uint8_t>((p.wcid >> 8) & 0xffU);
+    wtblHdr->operation = WTBL_RESET_AND_SET;
+    uint16_t wtblTlvs = 0;
+
+    if (p.enable) {
+        auto *gen = reinterpret_cast<WtblGenericTlv *>(buf + pos);
+        pos += sizeof(WtblGenericTlv);
+        wtblContainerLen += sizeof(WtblGenericTlv);
+        putLe16(&gen->tag, WTBL_GENERIC);
+        putLe16(&gen->len, sizeof(WtblGenericTlv));
+        memcpy(gen->peer_addr, p.peerMac, 6);
+        gen->muar_idx = p.broadcast ? 0x0eU : 0x00U;
+        gen->qos = (!p.broadcast && p.qos) ? 1 : 0;
+        putLe16(&gen->partial_aid, p.broadcast ? 0 : p.aid);
+        wtblTlvs++;
+
+        auto *rx = reinterpret_cast<WtblRxTlv *>(buf + pos);
+        pos += sizeof(WtblRxTlv);
+        wtblContainerLen += sizeof(WtblRxTlv);
+        putLe16(&rx->tag, WTBL_RX);
+        putLe16(&rx->len, sizeof(WtblRxTlv));
+        rx->rca1 = 1;
+        rx->rca2 = 1;
+        rx->rv = 1;
+        wtblTlvs++;
+
+        auto *htr = reinterpret_cast<WtblHdrTransTlv *>(buf + pos);
+        pos += sizeof(WtblHdrTransTlv);
+        wtblContainerLen += sizeof(WtblHdrTransTlv);
+        putLe16(&htr->tag, WTBL_HDR_TRANS);
+        putLe16(&htr->len, sizeof(WtblHdrTransTlv));
+        htr->to_ds = 1;
+        htr->from_ds = 0;
+        htr->no_rx_trans = 0; // Enable Connac2 HW 802.3 header translation for STA RX
+        wtblTlvs++;
+
+        if (!p.broadcast && p.ht) {
+            auto *wht = reinterpret_cast<WtblHtTlv *>(buf + pos);
+            pos += sizeof(WtblHtTlv);
+            wtblContainerLen += sizeof(WtblHtTlv);
+            putLe16(&wht->tag, WTBL_HT);
+            putLe16(&wht->len, sizeof(WtblHtTlv));
+            wht->ht = 1;
+            wht->ldpc = 1;
+            wht->af = 3;
+            wht->mm = 3;
+            wtblTlvs++;
+        }
+    }
+
+    putLe16(&wtblHdr->tlv_num, wtblTlvs);
+    putLe16(&staWtbl->len, wtblContainerLen);
+    putLe16(&hdr->tlv_num, topTlvs);
+
+    return sendMessage(MCU_UNI_CMD_STA_REC_UPDATE, buf, pos, true);
+}
+
+int MT7902Mcu::acquireRoc(uint8_t bssIdx, const ChannelConfig &ch,
+                          uint32_t durationMs, bool joinReq) {
+    if (mRocActive)
+        (void)abortRoc(bssIdx);
+
+    mRocTokenId = static_cast<uint8_t>(mRocTokenId + 1U);
+    if (mRocTokenId == 0)
+        mRocTokenId = 1;
+    mRocGranted = false;
+
+    RocAcquireReq req;
     memset(&req, 0, sizeof(req));
+    putLe16(&req.tag, UNI_ROC_ACQUIRE);
+    putLe16(&req.len, static_cast<uint16_t>(sizeof(RocAcquireReq) - sizeof(req.rsv_hdr)));
+    req.bss_idx = bssIdx;
+    req.tokenid = mRocTokenId;
+    req.control_channel = ch.primaryChannel;
+    uint8_t center = ch.centerChannel ? ch.centerChannel : ch.primaryChannel;
+    if (ch.primaryChannel < center)
+        req.sco = 1;
+    else if (ch.primaryChannel > center)
+        req.sco = 3;
+    req.band = static_cast<uint8_t>(ch.band + 1U); // 1=2G, 2=5G, 3=6G (mt7921_mcu_set_roc)
+    req.bw = CMD_CBW_20MHZ;
+    req.center_chan = center;
+    req.bw_from_ap = CMD_CBW_20MHZ;
+    req.center_chan_from_ap = center;
+    req.reqtype = joinReq ? MT7921_ROC_REQ_JOIN : MT7921_ROC_REQ_ROC;
+    putLe32(&req.maxinterval, durationMs ? durationMs : 1000U);
+    req.dbdcband = 0xff; // auto
 
-    req.hdr.bss_idx = p.bssIdx;
-    req.hdr.wlan_idx_lo = static_cast<uint8_t>(p.wcid & 0xffU);
-    req.hdr.wlan_idx_hi = static_cast<uint8_t>((p.wcid >> 8) & 0xffU);
-    putLe16(&req.hdr.tlv_num, 3);
-    req.hdr.is_tlv_append = 1;
+    int err = sendMessage(MCU_UNI_CMD_ROC, &req, sizeof(req), false);
+    if (err != kOk)
+        return err;
 
-    putLe16(&req.basic.tag, STA_REC_BASIC);
-    putLe16(&req.basic.len, sizeof(StaRecBasicTlv));
-    putLe32(&req.basic.conn_type, p.broadcast ? CONNECTION_INFRA_BC : CONNECTION_INFRA_AP);
-    req.basic.conn_state = p.enable ? p.state : CONN_STATE_DISCONNECT;
-    req.basic.qos = p.qos ? 1 : 0;
-    putLe16(&req.basic.aid, p.aid);
-    memcpy(req.basic.peer_addr, p.peerMac, 6);
-    uint16_t extra = MTK_BIT(0); // EXTRA_INFO_VER
-    if (p.newly && p.enable)
-        extra |= MTK_BIT(1);     // EXTRA_INFO_NEW
-    putLe16(&req.basic.extra_info, extra);
+    mRocActive = true;
+    uint64_t deadline = mBus.nowMs() + 500ULL;
+    while (!mRocGranted && mBus.nowMs() < deadline) {
+        drainRxEvents();
+        if (mRocGranted)
+            break;
+        mBus.delayUs(500);
+    }
+    if (!mRocGranted) {
+        MTK_LOG("ROC grant event not seen within 500ms (ch=%u tok=%u), continuing",
+                ch.primaryChannel, mRocTokenId);
+    }
+    return kOk;
+}
 
-    putLe16(&req.state.tag, STA_REC_STATE);
-    putLe16(&req.state.len, sizeof(StaRecStateTlv));
-    req.state.state = p.enable ? p.state : CONN_STATE_DISCONNECT;
+int MT7902Mcu::abortRoc(uint8_t bssIdx) {
+    if (!mRocActive)
+        return kOk;
+    mRocActive = false;
+    mRocGranted = false;
 
-    putLe16(&req.phy.tag, STA_REC_PHY);
-    putLe16(&req.phy.len, sizeof(StaRecPhyTlv));
-    putLe16(&req.phy.basic_rate, 0x000f);
-    req.phy.phy_type = 0x7f; // CCK + OFDM + HT + VHT + HE
-    req.phy.ampdu = 0x1f;
-    req.phy.rcpi = rssiToRcpi(p.rssi);
-
-    return sendMessage(MCU_UNI_CMD_STA_REC_UPDATE, &req, sizeof(req), true);
+    RocAbortReq req;
+    memset(&req, 0, sizeof(req));
+    putLe16(&req.tag, UNI_ROC_ABORT);
+    putLe16(&req.len, static_cast<uint16_t>(sizeof(RocAbortReq) - sizeof(req.rsv_hdr)));
+    req.bss_idx = bssIdx;
+    req.tokenid = mRocTokenId;
+    req.dbdcband = 0xff;
+    return sendMessage(MCU_UNI_CMD_ROC, &req, sizeof(req), false);
 }
 
 int MT7902Mcu::uniSetKey(const KeyInstallParams &p) {

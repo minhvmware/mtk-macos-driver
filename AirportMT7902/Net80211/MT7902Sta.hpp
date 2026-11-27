@@ -119,7 +119,8 @@ public:
                                      uint16_t seqNum, const uint8_t *ssid, uint8_t ssidLen,
                                      const uint8_t *rsnIe, uint16_t rsnIeLen,
                                      bool ht, bool vht, bool he,
-                                     uint8_t *out, size_t outCap);
+                                     uint8_t *out, size_t outCap,
+                                     bool fiveGhz = false);
     static size_t buildDeauthFrame(const uint8_t staMac[6], const uint8_t bssid[6],
                                    uint16_t seqNum, uint16_t reasonCode,
                                    uint8_t *out, size_t outCap);
@@ -152,6 +153,8 @@ private:
     char mCountryCode[3] = "US";
     bool mPowerOn = false;
     bool mScanning = false;
+    bool mStaAdded = false;
+    bool mBssActive = false;
     uint16_t mMgmtSeq = 0;
 };
 

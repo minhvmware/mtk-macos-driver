@@ -52,7 +52,8 @@ public:
 
     // Packet transmission
     int sendEthernetFrame(const uint8_t *frame, size_t len, uint16_t wcid, bool qos, bool protect);
-    int send80211Frame(const uint8_t *frame, size_t len, uint16_t wcid, bool protect, bool noAck = false);
+    int send80211Frame(const uint8_t *frame, size_t len, uint16_t wcid, bool protect,
+                       bool noAck = false, bool fiveGhz = false);
 
     // IMcuEventObserver overrides
     void onScanComplete(uint8_t seqNum) override;

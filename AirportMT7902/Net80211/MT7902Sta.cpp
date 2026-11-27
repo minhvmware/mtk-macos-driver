@@ -108,7 +108,8 @@ size_t MT7902Sta::buildAssocReqFrame(const uint8_t staMac[6], const uint8_t bssi
                                      uint16_t seqCtrl, const uint8_t *ssid, uint8_t ssidLen,
                                      const uint8_t *rsnIe, uint16_t rsnIeLen,
                                      bool ht, bool vht, bool he,
-                                     uint8_t *out, size_t outCap) {
+                                     uint8_t *out, size_t outCap,
+                                     bool fiveGhz) {
     if (!out || outCap < 128 || ssidLen > 32)
         return 0;
     memset(out, 0, 28);
@@ -121,7 +122,7 @@ size_t MT7902Sta::buildAssocReqFrame(const uint8_t staMac[6], const uint8_t bssi
     putLe16(out + 22, seqCtrl);
 
     // Capability info (ESS + Short Preamble + Short Slot) + Listen Interval (10)
-    uint16_t capab = 0x0421;
+    uint16_t capab = fiveGhz ? 0x0401 : 0x0421;
     if (rsnIeLen > 0)
         capab |= 0x0010; // Privacy
     putLe16(out + 24, capab);
@@ -137,21 +138,31 @@ size_t MT7902Sta::buildAssocReqFrame(const uint8_t staMac[6], const uint8_t bssi
         pos += ssidLen;
     }
 
-    // Supported Rates IE (ID=1): 1, 2, 5.5, 11, 6, 9, 12, 18 Mbps
-    static constexpr uint8_t kSuppRates[] = { 0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24 };
-    if (pos + 2 + sizeof(kSuppRates) > outCap) return 0;
-    out[pos++] = 1;
-    out[pos++] = sizeof(kSuppRates);
-    memcpy(out + pos, kSuppRates, sizeof(kSuppRates));
-    pos += sizeof(kSuppRates);
+    if (fiveGhz) {
+        // 5 GHz Supported Rates IE (ID=1): 6*, 9, 12*, 18, 24*, 36, 48, 54 Mbps (OFDM only)
+        static constexpr uint8_t kSuppRates5G[] = { 0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c };
+        if (pos + 2 + sizeof(kSuppRates5G) > outCap) return 0;
+        out[pos++] = 1;
+        out[pos++] = sizeof(kSuppRates5G);
+        memcpy(out + pos, kSuppRates5G, sizeof(kSuppRates5G));
+        pos += sizeof(kSuppRates5G);
+    } else {
+        // 2.4 GHz Supported Rates IE (ID=1): 1, 2, 5.5, 11, 6, 9, 12, 18 Mbps
+        static constexpr uint8_t kSuppRates[] = { 0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24 };
+        if (pos + 2 + sizeof(kSuppRates) > outCap) return 0;
+        out[pos++] = 1;
+        out[pos++] = sizeof(kSuppRates);
+        memcpy(out + pos, kSuppRates, sizeof(kSuppRates));
+        pos += sizeof(kSuppRates);
 
-    // Extended Supported Rates IE (ID=50): 24, 36, 48, 54 Mbps
-    static constexpr uint8_t kExtRates[] = { 0x30, 0x48, 0x60, 0x6c };
-    if (pos + 2 + sizeof(kExtRates) > outCap) return 0;
-    out[pos++] = 50;
-    out[pos++] = sizeof(kExtRates);
-    memcpy(out + pos, kExtRates, sizeof(kExtRates));
-    pos += sizeof(kExtRates);
+        // Extended Supported Rates IE (ID=50): 24, 36, 48, 54 Mbps
+        static constexpr uint8_t kExtRates[] = { 0x30, 0x48, 0x60, 0x6c };
+        if (pos + 2 + sizeof(kExtRates) > outCap) return 0;
+        out[pos++] = 50;
+        out[pos++] = sizeof(kExtRates);
+        memcpy(out + pos, kExtRates, sizeof(kExtRates));
+        pos += sizeof(kExtRates);
+    }
 
     // RSN / WPA IE (provided by Apple80211 supplicant)
     if (rsnIe && rsnIeLen > 0 && pos + rsnIeLen <= outCap) {
@@ -296,37 +307,55 @@ int MT7902Sta::associate(const AssocRequestParams &req) {
         }
     }
 
-    // Tune MT7902 radio to AP channel
+    // Tune MT7902 radio to AP channel & acquire join ROC channel privilege (matching mt7921_mgd_prepare_tx)
     ChannelConfig ch;
     ch.primaryChannel = mLink.channel;
     ch.centerChannel = mLink.channel;
     ch.band = static_cast<uint8_t>(mLink.band);
-    ch.bw = CMD_CBW_20MHZ; // Start in 20 MHz during auth/assoc, widen after assoc
+    ch.bw = CMD_CBW_20MHZ;
     int err = mDev.mcu().setChannel(ch, mDev.capability().antennaMask);
     if (err != kOk)
         return err;
+    (void)mDev.mcu().acquireRoc(0, ch, 5000, true /* MT7921_ROC_REQ_JOIN */);
 
-    // Register peer STA record in MT7902 WTBL for management exchange
+    // Clear WTBL ADM counters & register peer STA + WTBL record (matching mt7921_mac_sta_add)
+    mDev.mac().wtblUpdate(mLink.apWcid, MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
     StaUpdateParams staP;
     staP.bssIdx = 0;
     staP.wcid = mLink.apWcid;
     staP.aid = 0;
     memcpy(staP.peerMac, mLink.bssid, 6);
-    staP.state = CONN_STATE_CONNECT;
+    staP.state = CONN_STATE_PORT_SECURE;
+    staP.staState = MT76_STA_INFO_STATE_NONE;
+    staP.band = static_cast<uint8_t>(mLink.band);
     staP.qos = mLink.qos;
+    staP.ht = true;
     staP.enable = true;
     staP.newly = true;
     staP.rssi = static_cast<int8_t>(mLink.rssi);
-    (void)mDev.mcu().uniUpdateSta(staP);
+    err = mDev.mcu().uniUpdateSta(staP);
+    if (err != kOk) {
+        MTK_ERR("uniUpdateSta (pre-auth wcid=%u) failed: %d", mLink.apWcid, err);
+        (void)mDev.mcu().abortRoc(0);
+        mLink.state = kStaInit;
+        return err;
+    }
+    mStaAdded = true;
 
-    // Send 802.11 Open System Authentication Request
+    // Send 802.11 Open System Authentication Request using peer WCID and band-appropriate basic rate
     uint8_t authFrame[64];
     size_t authLen = buildAuthReqFrame(mDev.capability().macAddr, mLink.bssid,
                                        nextMgmtSeq(), 0, 1, authFrame, sizeof(authFrame));
     mLink.state = kStaAuthenticating;
 
-    err = mDev.send80211Frame(authFrame, authLen, 0, false);
+    bool fiveGhz = (mLink.band != kBand2GHz);
+    err = mDev.send80211Frame(authFrame, authLen, mLink.apWcid, false, false, fiveGhz);
+    MTK_LOG("Sent Auth Req -> BSSID %02x:%02x:%02x:%02x:%02x:%02x ch=%u band=%u wcid=%u err=%d",
+            mLink.bssid[0], mLink.bssid[1], mLink.bssid[2],
+            mLink.bssid[3], mLink.bssid[4], mLink.bssid[5],
+            mLink.channel, static_cast<unsigned>(mLink.band), mLink.apWcid, err);
     if (err != kOk) {
+        (void)mDev.mcu().abortRoc(0);
         mLink.state = kStaInit;
         return err;
     }
@@ -336,34 +365,46 @@ int MT7902Sta::associate(const AssocRequestParams &req) {
 int MT7902Sta::disassociate(uint16_t reasonCode) {
     bool wasLinked = (mLink.state >= kStaAssociated);
 
-    if (mPowerOn && mLink.state >= kStaAuthenticating) {
-        uint8_t deauth[32];
-        size_t len = buildDeauthFrame(mDev.capability().macAddr, mLink.bssid,
-                                      nextMgmtSeq(), reasonCode, deauth, sizeof(deauth));
-        (void)mDev.send80211Frame(deauth, len, 0, false);
+    if (mPowerOn && (mLink.state >= kStaAuthenticating || mStaAdded || mBssActive)) {
+        if (mLink.state >= kStaAuthenticating) {
+            uint8_t deauth[32];
+            size_t len = buildDeauthFrame(mDev.capability().macAddr, mLink.bssid,
+                                          nextMgmtSeq(), reasonCode, deauth, sizeof(deauth));
+            bool fiveGhz = (mLink.band != kBand2GHz);
+            (void)mDev.send80211Frame(deauth, len, mLink.apWcid, false, false, fiveGhz);
+        }
 
-        (void)mDev.mcu().setBssConnected(0, 0, 100, 1, false);
+        (void)mDev.mcu().abortRoc(0);
 
-        StaUpdateParams staP;
-        staP.bssIdx = 0;
-        staP.wcid = mLink.apWcid;
-        memcpy(staP.peerMac, mLink.bssid, 6);
-        staP.enable = false;
-        (void)mDev.mcu().uniUpdateSta(staP);
+        if (mStaAdded) {
+            StaUpdateParams staP;
+            staP.bssIdx = 0;
+            staP.wcid = mLink.apWcid;
+            memcpy(staP.peerMac, mLink.bssid, 6);
+            staP.enable = false;
+            (void)mDev.mcu().uniUpdateSta(staP);
+            mDev.mac().wtblUpdate(mLink.apWcid, MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
+            mStaAdded = false;
+        }
 
-        StaUpdateParams bmcP;
-        bmcP.bssIdx = 0;
-        bmcP.wcid = MT7902_WTBL_SIZE - 1;
-        memcpy(bmcP.peerMac, mLink.bssid, 6);
-        bmcP.broadcast = true;
-        bmcP.enable = false;
-        (void)mDev.mcu().uniUpdateSta(bmcP);
+        if (mBssActive) {
+            (void)mDev.mcu().setBssConnected(0, 0, 100, 1, false);
 
-        ChannelConfig ch;
-        ch.primaryChannel = mLink.channel;
-        ch.centerChannel = mLink.channel;
-        ch.band = static_cast<uint8_t>(mLink.band);
-        (void)mDev.mcu().uniAddBss(0, 0, MT7902_WTBL_SIZE - 1, mLink.bssid, ch, 100, 1, false, false);
+            StaUpdateParams bmcP;
+            bmcP.bssIdx = 0;
+            bmcP.wcid = MT7902_WTBL_SIZE - 1;
+            memcpy(bmcP.peerMac, mLink.bssid, 6);
+            bmcP.broadcast = true;
+            bmcP.enable = false;
+            (void)mDev.mcu().uniUpdateSta(bmcP);
+
+            ChannelConfig ch;
+            ch.primaryChannel = mLink.channel;
+            ch.centerChannel = mLink.channel;
+            ch.band = static_cast<uint8_t>(mLink.band);
+            (void)mDev.mcu().uniAddBss(0, 0, MT7902_WTBL_SIZE - 1, mLink.bssid, ch, 100, 1, false, false);
+            mBssActive = false;
+        }
     }
 
     mWpa2.reset();
@@ -397,6 +438,8 @@ int MT7902Sta::installCipherKey(uint8_t cipher, uint8_t keyIdx, const uint8_t *k
         memcpy(kp.key, key, keyLen);
 
     int err = mDev.mcu().uniSetKey(kp);
+    MTK_LOG("installCipherKey(%s): cipher=%u idx=%u len=%zu wcid=%u set=%d -> err=%d",
+            pairwise ? "PTK" : "GTK", cipher, keyIdx, keyLen, kp.wcid, setKey, err);
     if (err != kOk)
         return err;
 
@@ -406,6 +449,7 @@ int MT7902Sta::installCipherKey(uint8_t cipher, uint8_t keyIdx, const uint8_t *k
 
         if (mLink.ptkInstalled && mLink.state != kStaRun) {
             mLink.state = kStaRun;
+            (void)mDev.mcu().abortRoc(0);
             if (mListener)
                 mListener->onLinkStateChanged(true);
         }
@@ -445,16 +489,20 @@ void MT7902Sta::handleAuthResp(const uint8_t *frame, size_t len) {
         return;
     }
 
+    bool fiveGhz = (mLink.band != kBand2GHz);
     uint8_t assocFrame[512];
     size_t assocLen = buildAssocReqFrame(
         mDev.capability().macAddr, mLink.bssid, nextMgmtSeq(),
         mLink.ssid, mLink.ssidLen,
         mLink.rsnIeLen ? mLink.rsnIe : nullptr, mLink.rsnIeLen,
-        true, mLink.band != kBand2GHz, mDev.capability().supportsHe,
-        assocFrame, sizeof(assocFrame));
+        true, fiveGhz, mDev.capability().supportsHe,
+        assocFrame, sizeof(assocFrame), fiveGhz);
 
     mLink.state = kStaAssociating;
-    if (mDev.send80211Frame(assocFrame, assocLen, 0, false) != kOk) {
+    int txErr = mDev.send80211Frame(assocFrame, assocLen, mLink.apWcid, false, false, fiveGhz);
+    MTK_LOG("Rx Auth Resp OK -> Sent Assoc Req (%zu bytes, wcid=%u, 5G=%d, err=%d)",
+            assocLen, mLink.apWcid, fiveGhz, txErr);
+    if (txErr != kOk) {
         mLink.state = kStaInit;
         if (mListener)
             mListener->onAssociationCompleted(false, 1);
@@ -482,49 +530,63 @@ void MT7902Sta::handleAssocResp(const uint8_t *frame, size_t len) {
     mLink.aid = aid;
     mLink.state = mLink.encrypted ? kStaAssociated : kStaRun;
 
-    // Program MT7902 hardware BSS & STA state with full channel width
+    // Program MT7902 hardware BSS, EDCA, BMC WTBL, and peer STA record (matching mt7921_mac_sta_event)
     ChannelConfig ch;
     ch.primaryChannel = mLink.channel;
     ch.centerChannel = mLink.channel;
     ch.band = static_cast<uint8_t>(mLink.band);
-    ch.bw = mLink.bw;
+    ch.bw = CMD_CBW_20MHZ; // Keep valid 20 MHz center channel until HT/VHT Op IE offset parsing
 
     constexpr uint16_t kBmcWcid = MT7902_WTBL_SIZE - 1;
     (void)mDev.mcu().setChannel(ch, mDev.capability().antennaMask);
-    (void)mDev.mcu().uniAddBss(0, 0, kBmcWcid, mLink.bssid, ch,
-                               mLink.beaconInterval, mLink.dtimPeriod,
-                               mLink.qos, true);
+    int bssErr = mDev.mcu().uniAddBss(0, 0, kBmcWcid, mLink.bssid, ch,
+                                      mLink.beaconInterval, mLink.dtimPeriod,
+                                      mLink.qos, true);
+    if (bssErr == kOk)
+        mBssActive = true;
+    (void)mDev.mcu().setEdcaParams(0, mLink.qos);
 
+    mDev.mac().wtblUpdate(kBmcWcid, MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
     StaUpdateParams bmcP;
     bmcP.bssIdx = 0;
     bmcP.wcid = kBmcWcid;
     bmcP.aid = aid;
     memcpy(bmcP.peerMac, mLink.bssid, 6);
     bmcP.state = CONN_STATE_PORT_SECURE;
+    bmcP.staState = MT76_STA_INFO_STATE_ASSOC;
+    bmcP.band = static_cast<uint8_t>(mLink.band);
     bmcP.qos = false;
+    bmcP.ht = false;
     bmcP.enable = true;
     bmcP.newly = true;
     bmcP.broadcast = true;
     bmcP.rssi = static_cast<int8_t>(mLink.rssi);
     (void)mDev.mcu().uniUpdateSta(bmcP);
 
+    mDev.mac().wtblUpdate(mLink.apWcid, MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
     StaUpdateParams staP;
     staP.bssIdx = 0;
     staP.wcid = mLink.apWcid;
     staP.aid = aid;
     memcpy(staP.peerMac, mLink.bssid, 6);
     staP.state = CONN_STATE_PORT_SECURE;
+    staP.staState = MT76_STA_INFO_STATE_ASSOC;
+    staP.band = static_cast<uint8_t>(mLink.band);
     staP.qos = mLink.qos;
+    staP.ht = true;
     staP.enable = true;
     staP.newly = false;
     staP.rssi = static_cast<int8_t>(mLink.rssi);
     (void)mDev.mcu().uniUpdateSta(staP);
     (void)mDev.mcu().setBssConnected(0, aid, mLink.beaconInterval, mLink.dtimPeriod, true);
 
-    MTK_LOG("Associated to BSSID %02x:%02x:%02x:%02x:%02x:%02x ch=%u aid=%u encrypted=%d",
+    if (!mLink.encrypted)
+        (void)mDev.mcu().abortRoc(0);
+
+    MTK_LOG("Associated to BSSID %02x:%02x:%02x:%02x:%02x:%02x ch=%u aid=%u encrypted=%d bssErr=%d",
             mLink.bssid[0], mLink.bssid[1], mLink.bssid[2],
             mLink.bssid[3], mLink.bssid[4], mLink.bssid[5],
-            mLink.channel, aid, mLink.encrypted);
+            mLink.channel, aid, mLink.encrypted, bssErr);
 
     if (mListener) {
         mListener->onAssociationCompleted(true, 0);
@@ -540,8 +602,10 @@ void MT7902Sta::handleDeauthOrDisassoc(const uint8_t *frame, size_t len, bool is
         return;
 
     uint16_t reason = getLe16(frame + 24);
+    MTK_LOG("Rx %s from AP (reason=%u)", isDisassoc ? "Disassoc" : "Deauth", reason);
     mLink.lastDeauthReason = reason;
     bool wasLinked = (mLink.state >= kStaAssociated);
+    (void)mDev.mcu().abortRoc(0);
     mWpa2.reset();
     mLink.state = kStaInit;
     mLink.ptkInstalled = false;
@@ -579,6 +643,8 @@ bool MT7902Sta::handleInboundEapol(const uint8_t *ethFrame, size_t len) {
         (void)mDev.sendEthernetFrame(txReply, txLen, mLink.apWcid, mLink.qos, mLink.ptkInstalled);
         if (gtk.found && gtk.keyLen > 0)
             (void)installCipherKey(mWpa2.groupCipher, gtk.keyIdx, gtk.key, gtk.keyLen, false, true);
+    } else if (res == kWpa2Error) {
+        MTK_ERR("WPA2 EAPOL processing error (len=%zu)", len);
     }
     return true;
 }

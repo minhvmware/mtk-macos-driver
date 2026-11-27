@@ -313,6 +313,41 @@ private:
             uint8_t seq = uni->seq;
             mcuCmdHistory.push_back(MCU_CMD_FIELD_UNI | cid);
 
+            if (cid == 0x27) { // MCU_UNI_CMD_ROC (fire-and-forget; ACQUIRE yields unsolicited ROC grant event)
+                const uint8_t *rocPayload = buf + sizeof(Mt76Connac2McuUniTxd);
+                size_t rocLen = len - sizeof(Mt76Connac2McuUniTxd);
+                if (rocLen >= 6 && getLe16(rocPayload + 4) == UNI_ROC_ACQUIRE) {
+                    std::vector<uint8_t> evt(sizeof(Mt76Connac2McuRxd) + 16, 0);
+                    auto *erxd = reinterpret_cast<Mt76Connac2McuRxd *>(evt.data());
+                    putLe32(&erxd->rxd[0], fieldPrep(MT_RXD0_LENGTH, static_cast<uint32_t>(evt.size())) |
+                                           fieldPrep(MT_RXD0_PKT_TYPE, PKT_TYPE_RX_EVENT));
+                    erxd->eid = MCU_UNI_EVENT_ROC;
+                    erxd->option = MCU_UNI_CMD_UNSOLICITED_EVENT;
+                    injectRxPacket(MT_RX_EVENT_RING_BASE, MT_INT_RX_DONE_WM, evt.data(), evt.size());
+                }
+                return;
+            }
+
+            if (cid == 0x03) { // Verify STA_REC_UPDATE carries valid STA_REC_WTBL or STA_REC_KEY_V2 (0x11)
+                const uint8_t *sp = buf + sizeof(Mt76Connac2McuUniTxd);
+                size_t slen = len - sizeof(Mt76Connac2McuUniTxd);
+                TEST_CHECK(slen >= sizeof(StaReqHdr) + 4, "STA_REC_UPDATE payload too short");
+                const auto *sh = reinterpret_cast<const StaReqHdr *>(sp);
+                uint16_t ntlvs = getLe16(&sh->tlv_num);
+                TEST_CHECK(ntlvs >= 1, "STA_REC_UPDATE must have >=1 TLV");
+                size_t off = sizeof(StaReqHdr);
+                bool sawWtblOrKey = false;
+                for (uint16_t t = 0; t < ntlvs && off + 4 <= slen; ++t) {
+                    uint16_t ttag = getLe16(sp + off);
+                    uint16_t tlen = getLe16(sp + off + 2);
+                    TEST_CHECK(tlen >= 4 && off + tlen <= slen, "Malformed STA_REC TLV %u (len=%u)", ttag, tlen);
+                    if (ttag == STA_REC_WTBL || ttag == STA_REC_KEY_V2)
+                        sawWtblOrKey = true;
+                    off += tlen;
+                }
+                TEST_CHECK(sawWtblOrKey, "STA_REC_UPDATE missing STA_REC_WTBL (0x0d) or STA_REC_KEY_V2 (0x11)");
+            }
+
             Mt76ConnacMcuUniEvent ev = {};
             ev.cid = cid;
             putLe32(&ev.status, 0);
@@ -381,8 +416,8 @@ private:
         if (cid == 0x05 && stdTxd->set_query == MCU_Q_SET) { // MCU_CE_CMD_SET_PS_PROFILE (fire-and-forget)
             return;
         }
-        if (cid == 0x0f || cid == 0x16 || cid == 0x17 || cid == 0x1b) {
-            // Fire-and-forget CE commands (SET_CHAN_DOMAIN, SET_BSS_CONNECTED, SET_BSS_ABORT, CANCEL_HW_SCAN)
+        if (cid == 0x0f || cid == 0x16 || cid == 0x17 || cid == 0x1b || cid == 0x1d) {
+            // Fire-and-forget CE commands (SET_CHAN_DOMAIN, SET_BSS_CONNECTED, SET_BSS_ABORT, CANCEL_HW_SCAN, SET_EDCA_PARMS)
             return;
         }
 
@@ -628,6 +663,11 @@ static void testTxwiTokensTxFreeAndRxdDecoding(MockMT7902AsicBus &bus, MT7902Dev
     TEST_CHECK(dev.mac().activeTokens() == 2, "Expected 2 active TX tokens, got %u", dev.mac().activeTokens());
     TEST_CHECK(bus.capturedBand0Txwis.size() == 2, "Expected 2 Band0 TXWIs");
 
+    // Verify Connac2 HW_TXP len0 sets ONLY MT_TXD_LEN_LAST (never MT_TXD_LEN_MSDU_LAST)
+    uint16_t rawLen0 = getLe16(&bus.capturedBand0Txwis[0].txp.ptr[0].len0);
+    TEST_CHECK((rawLen0 & MT_TXD_LEN_LAST) != 0 && (rawLen0 & MT_TXD_LEN_MSDU_LAST) == 0,
+               "Connac2 HW_TXP len0 must set MT_TXD_LEN_LAST without MT_TXD_LEN_MSDU_LAST (got 0x%04x)", rawLen0);
+
     uint16_t tok0 = getLe16(&bus.capturedBand0Txwis[0].txp.msdu_id[0]) & ~MT_MSDU_ID_VALID;
     uint16_t tok1 = getLe16(&bus.capturedBand0Txwis[1].txp.msdu_id[0]) & ~MT_MSDU_ID_VALID;
 
@@ -751,6 +791,7 @@ static void testStaScanWpa2AssocKeyInstallAndData(MockMT7902AsicBus &bus, MT7902
 
     // Initiate WPA2 association
     bus.capturedBand0TxPayloads.clear();
+    bus.capturedBand0Txwis.clear();
     AssocRequestParams areq;
     areq.ssidLen = static_cast<uint8_t>(strlen(ssidStr));
     memcpy(areq.ssid, ssidStr, areq.ssidLen);
@@ -765,6 +806,11 @@ static void testStaScanWpa2AssocKeyInstallAndData(MockMT7902AsicBus &bus, MT7902
     TEST_CHECK(sta.link().state == kStaAuthenticating, "Expected kStaAuthenticating");
     TEST_CHECK(bus.capturedBand0TxPayloads.size() == 1 &&
                getLe16(bus.capturedBand0TxPayloads[0].data()) == 0x00b0, "Expected 802.11 Auth Req");
+    TEST_CHECK(fieldGet(MT_TXD1_WLAN_IDX, getLe32(&bus.capturedBand0Txwis[0].txd[1])) == sta.link().apWcid,
+               "Auth Req must use peer apWcid (not 0)");
+    TEST_CHECK(fieldGet(MT_TXD6_TX_RATE, getLe32(&bus.capturedBand0Txwis[0].txd[6])) ==
+                   ((static_cast<uint32_t>(MT_PHY_TYPE_OFDM) << 6) | 0x0bU),
+               "5 GHz Auth Req must use OFDM 6 Mbps (0x004b), not CCK");
 
     // Inject 802.11 Auth Response (status = 0)
     uint8_t authResp[30] = {};
