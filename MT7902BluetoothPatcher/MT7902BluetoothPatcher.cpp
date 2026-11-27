@@ -241,77 +241,91 @@ IOReturn MT7902BtPatcherCore::myHostDeviceRequest(void *that,
                                                   unsigned int timeout) {
     auto origFn = FunctionCast(myHostDeviceRequest, gCallbackCore->orgHostDeviceRequest);
 
-    auto *usbDev = reinterpret_cast<IOUSBHostDevice *>(that);
-    const StandardUSB::DeviceDescriptor *dd = usbDev ? usbDev->getDeviceDescriptor() : nullptr;
+    // Fast path: never touch IOUSBHostDevice during standard/vendor/IN USB enumeration requests.
+    // Note: never call IOUSBHostDevice::getDeviceDescriptor() here — it calls getDescriptor()
+    // internally and deadlocks USB enumeration (0x0000/0000/0000 on all ports).
+    if (mt7902::bt::isClassOutControlRequest(request.bmRequestType) &&
+        request.wLength >= sizeof(mt7902::bt::HciCmdHeader) &&
+        request.wLength <= 260) {
 
-    if (dd &&
-        mt7902::bt::isMT7902BtUsbId(dd->idVendor, dd->idProduct) &&
-        mt7902::bt::isClassOutControlRequest(request.bmRequestType) &&
-        request.wLength >= sizeof(mt7902::bt::HciCmdHeader)) {
+        auto *usbDev = reinterpret_cast<IOUSBHostDevice *>(that);
+        OSObject *loadedProp = usbDev ? usbDev->copyProperty("MT7902BTFirmwareLoaded") : nullptr;
+        bool isMT7902Bt = (loadedProp == kOSBooleanTrue);
+        if (loadedProp)
+            loadedProp->release();
 
-        uint8_t hciBuf[32] {};
-        uint32_t readLen = 0;
+        if (isMT7902Bt) {
+            uint8_t hciBuf[32] {};
+            uint32_t readLen = 0;
 
-        if (data != nullptr) {
-            readLen = request.wLength < sizeof(hciBuf) ? request.wLength : static_cast<uint32_t>(sizeof(hciBuf));
-            memcpy(hciBuf, data, readLen);
-        } else if (descriptor != nullptr) {
-            bool prepared = false;
-            bool canRead = true;
-            if (getKernelVersion() >= KernelVersion::Sequoia) {
-                if (descriptor->prepare(kIODirectionOut) == kIOReturnSuccess)
-                    prepared = true;
-                else
-                    canRead = false;
-            }
-            if (canRead && descriptor->getLength() >= sizeof(mt7902::bt::HciCmdHeader)) {
-                size_t toRead = descriptor->getLength();
-                if (toRead > sizeof(hciBuf))
-                    toRead = sizeof(hciBuf);
-                readLen = static_cast<uint32_t>(descriptor->readBytes(0, hciBuf, toRead));
-            }
-            if (prepared)
-                descriptor->complete(kIODirectionOut);
-        }
-
-        if (readLen >= sizeof(mt7902::bt::HciCmdHeader)) {
-            const auto *hdr = reinterpret_cast<const mt7902::bt::HciCmdHeader *>(hciBuf);
-            uint16_t opcode = hdr->opcode;
-
-            if (sHciCmdLogCount < 40 || opcode == mt7902::bt::kHciOpLeSetScanParam ||
-                opcode == mt7902::bt::kHciOpLeSetExtScanParam ||
-                opcode == mt7902::bt::kHciOpLeSetScanEnable ||
-                opcode == mt7902::bt::kHciOpLeSetExtScanEnable ||
-                opcode == mt7902::bt::kHciOpLeSetRandomAddress ||
-                opcode == mt7902::bt::kHciOpReset) {
-                if (sHciCmdLogCount < 80) {
-                    ++sHciCmdLogCount;
-                    SYSLOG(MTKBTP_LOG_TAG,
-                           "HCI OUT #%u: bmReq=0x%02x bReq=0x%02x wVal=0x%04x wIdx=0x%04x op=0x%04x plen=%u wLen=%u",
-                           sHciCmdLogCount, request.bmRequestType, request.bRequest,
-                           request.wValue, request.wIndex, opcode, hdr->paramLen, request.wLength);
+            if (data != nullptr) {
+                readLen = request.wLength < sizeof(hciBuf) ? request.wLength : static_cast<uint32_t>(sizeof(hciBuf));
+                memcpy(hciBuf, data, readLen);
+            } else if (descriptor != nullptr) {
+                bool prepared = false;
+                bool canRead = true;
+                if (getKernelVersion() >= KernelVersion::Sequoia) {
+                    if (descriptor->prepare(kIODirectionOut) == kIOReturnSuccess)
+                        prepared = true;
+                    else
+                        canRead = false;
                 }
+                if (canRead && descriptor->getLength() >= sizeof(mt7902::bt::HciCmdHeader)) {
+                    size_t toRead = descriptor->getLength();
+                    if (toRead > sizeof(hciBuf))
+                        toRead = sizeof(hciBuf);
+                    readLen = static_cast<uint32_t>(descriptor->readBytes(0, hciBuf, toRead));
+                }
+                if (prepared)
+                    descriptor->complete(kIODirectionOut);
             }
 
-            if (sHciState.onOutgoingHciOpcode(opcode)) {
-                // Mirror the exact bmRequestType/bRequest/wValue/wIndex used by bluetoothd
-                StandardUSB::DeviceRequest randReq = request;
-                randReq.wLength = sizeof(mt7902::bt::kStaticRandomAddressHciCmd);
+            if (readLen >= sizeof(mt7902::bt::HciCmdHeader)) {
+                const auto *hdr = reinterpret_cast<const mt7902::bt::HciCmdHeader *>(hciBuf);
+                uint16_t opcode = hdr->opcode;
 
-                IOBufferMemoryDescriptor *randDesc = IOBufferMemoryDescriptor::withBytes(
-                    mt7902::bt::kStaticRandomAddressHciCmd,
-                    sizeof(mt7902::bt::kStaticRandomAddressHciCmd),
-                    kIODirectionOut);
-                if (randDesc) {
-                    uint32_t randTransferred = 0;
-                    IOReturn prepRet = randDesc->prepare(kIODirectionOut);
-                    IOReturn injRet = kIOReturnError;
-                    if (prepRet == kIOReturnSuccess) {
-                        injRet = origFn(that, provider, randReq, nullptr, randDesc,
-                                        randTransferred, nullptr, timeout ? timeout : 1000);
-                        randDesc->complete(kIODirectionOut);
+                if (sHciCmdLogCount < 40 || opcode == mt7902::bt::kHciOpLeSetScanParam ||
+                    opcode == mt7902::bt::kHciOpLeSetExtScanParam ||
+                    opcode == mt7902::bt::kHciOpLeSetScanEnable ||
+                    opcode == mt7902::bt::kHciOpLeSetExtScanEnable ||
+                    opcode == mt7902::bt::kHciOpLeSetRandomAddress ||
+                    opcode == mt7902::bt::kHciOpReset) {
+                    if (sHciCmdLogCount < 80) {
+                        ++sHciCmdLogCount;
+                        SYSLOG(MTKBTP_LOG_TAG,
+                               "HCI OUT #%u: bmReq=0x%02x bReq=0x%02x wVal=0x%04x wIdx=0x%04x op=0x%04x plen=%u wLen=%u",
+                               sHciCmdLogCount, request.bmRequestType, request.bRequest,
+                               request.wValue, request.wIndex, opcode, hdr->paramLen, request.wLength);
                     }
-                    randDesc->release();
+                }
+
+                if (sHciState.onOutgoingHciOpcode(opcode)) {
+                    // Mirror the exact bmRequestType/bRequest/wValue/wIndex used by bluetoothd
+                    StandardUSB::DeviceRequest randReq = request;
+                    randReq.wLength = sizeof(mt7902::bt::kStaticRandomAddressHciCmd);
+                    uint32_t randTransferred = 0;
+                    IOReturn injRet = kIOReturnError;
+
+                    if (data != nullptr) {
+                        uint8_t randBuf[sizeof(mt7902::bt::kStaticRandomAddressHciCmd)];
+                        memcpy(randBuf, mt7902::bt::kStaticRandomAddressHciCmd, sizeof(randBuf));
+                        injRet = origFn(that, provider, randReq, randBuf, nullptr,
+                                        randTransferred, nullptr, timeout ? timeout : 1000);
+                    } else {
+                        IOBufferMemoryDescriptor *randDesc = IOBufferMemoryDescriptor::withBytes(
+                            mt7902::bt::kStaticRandomAddressHciCmd,
+                            sizeof(mt7902::bt::kStaticRandomAddressHciCmd),
+                            kIODirectionOut);
+                        if (randDesc) {
+                            if (randDesc->prepare(kIODirectionOut) == kIOReturnSuccess) {
+                                injRet = origFn(that, provider, randReq, nullptr, randDesc,
+                                                randTransferred, nullptr, timeout ? timeout : 1000);
+                                randDesc->complete(kIODirectionOut);
+                            }
+                            randDesc->release();
+                        }
+                    }
+
                     SYSLOG(MTKBTP_LOG_TAG,
                            "[PATCH] Injected HCI_LE_Set_Random_Address before 0x%04x (bmReq=0x%02x bReq=0x%02x) -> ret=0x%x xfer=%u",
                            opcode, randReq.bmRequestType, randReq.bRequest, injRet, randTransferred);
