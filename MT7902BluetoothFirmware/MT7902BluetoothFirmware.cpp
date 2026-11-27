@@ -153,10 +153,10 @@ bool MT7902BluetoothFirmware::start(IOService *provider) {
         usbDev->close(this);
     }
 
-    // Rename the composite USB node AND set USB Product Name / kUSBProductString so macOS 12–15+
-    // bluetoothd GetProductAndVendorID() matches the internal USB HCI controller cleanly.
-    usbDev->setProperty("USB Product Name", "Bluetooth USB Host Controller");
-    usbDev->setProperty("kUSBProductString", "Bluetooth USB Host Controller");
+    // Rename the composite USB registry node to match Apple's Bluetooth convention
+    // (matching SimpleMtkBtFw), while keeping the original USB Product Name property
+    // ("Wireless_Device") so macOS 12–15+ bluetoothd HasExternalDongle() selects
+    // THIRD_PARTY_DONGLE (standard HCI) instead of BCM_4350C2 Broadcom VSC mode.
     usbDev->setName("Bluetooth USB Host Controller");
     registerService();
     return true;

@@ -90,9 +90,11 @@ def patch_config_plist(plist_path: Path, include_bt_patcher: bool = False) -> No
     apple_boot["boot-args"] = cur_args
     # csr-active-config = 0x00000803 (LE: 03 08 00 00) allows unsigned third-party kexts
     apple_boot["csr-active-config"] = bytes([0x03, 0x08, 0x00, 0x00])
-    # Required by BlueToolFixup / bluetoothd on macOS 12+ for non-Apple USB BT controllers
+    # Required by BlueToolFixup / bluetoothd on macOS 12+ for non-Apple USB BT controllers.
+    # bluetoothd HasInternalControllerAddr strictly checks CFDataGetLength == 14 (0x0E) bytes
+    # before evaluating HasExternalDongle() to select THIRD_PARTY_DONGLE (chipset=0).
     apple_boot["bluetoothExternalDongleFailed"] = bytes([0x00])
-    apple_boot["bluetoothInternalControllerInfo"] = bytes(16)
+    apple_boot["bluetoothInternalControllerInfo"] = bytes(14)
 
     nvram_del = cfg.setdefault("NVRAM", {}).setdefault("Delete", {})
     del_boot = nvram_del.setdefault("7C436110-AB2A-4BBB-A880-FE41995C9F82", [])
