@@ -78,12 +78,23 @@ BT_HEADERS = [
     "MT7902BluetoothFirmware/MT7902BluetoothFirmware.hpp",
 ]
 
+BT_PATCHER_SOURCES = [
+    "Lilu.kext/Contents/Resources/Library/plugin_start.cpp",
+    "MT7902BluetoothPatcher/MT7902BluetoothPatcher.cpp",
+]
+
+BT_PATCHER_HEADERS = [
+    "MT7902BluetoothPatcher/MT7902BtPatcherLogic.hpp",
+    "MT7902BluetoothPatcher/MT7902BluetoothPatcher.hpp",
+]
+
 PLISTS = [
     "AirportMT7902/Info-Ventura.plist",
     "AirportMT7902/Info-Sonoma.plist",
     "AirportMT7902/Info-Sequoia.plist",
     "AirportMT7902/Info-Tahoe.plist",
     "MT7902BluetoothFirmware/Info.plist",
+    "MT7902BluetoothPatcher/Info.plist",
 ]
 
 TARGETS = [
@@ -160,6 +171,20 @@ TARGETS = [
             "__PRIVATE_SPI__",
         ],
     },
+    {
+        "name": "MT7902BluetoothPatcher",
+        "product_name": "MT7902BluetoothPatcher",
+        "bundle_id": "com.mtk.MT7902BluetoothPatcher",
+        "subdir": "Bluetooth",
+        "plist": "MT7902BluetoothPatcher/Info.plist",
+        "deployment": "12.0",
+        "sources": BT_PATCHER_SOURCES,
+        "defines": [
+            "MODULE_VERSION=$(MODULE_VERSION)",
+            "PRODUCT_NAME=$(PRODUCT_NAME)",
+        ],
+        "is_lilu_plugin": True,
+    },
 ]
 
 
@@ -219,7 +244,12 @@ def main() -> None:
     schemes_dir = proj_dir / "xcshareddata" / "xcschemes"
     schemes_dir.mkdir(parents=True, exist_ok=True)
 
-    all_files = sorted(set(WIFI_SOURCES + WIFI_HEADERS + BT_SOURCES + BT_HEADERS + PLISTS))
+    all_files = sorted(set(
+        WIFI_SOURCES + WIFI_HEADERS +
+        BT_SOURCES + BT_HEADERS +
+        BT_PATCHER_SOURCES + BT_PATCHER_HEADERS +
+        PLISTS
+    ))
     file_refs: dict[str, str] = {}
     for f in all_files:
         file_refs[f] = pbx_id(f"fileref:{f}")
@@ -313,6 +343,13 @@ def main() -> None:
         cfg_list_id = pbx_id(f"cfglist:{tname}")
 
         defs_lines = "\n".join(f"\t\t\t\t\t{quote_pbx(d)}," for d in tgt["defines"])
+        is_lilu = bool(tgt.get("is_lilu_plugin", False))
+        if is_lilu:
+            pch_block = "\t\t\t\tGCC_PRECOMPILE_PREFIX_HEADER = NO;\n\t\t\t\tHEADER_SEARCH_PATHS = \"$(PROJECT_DIR)/Lilu.kext/Contents/Resources\";"
+            mod_hooks = f"\t\t\t\tMODULE_START = {pname}_kern_start;\n\t\t\t\tMODULE_STOP = {pname}_kern_stop;\n"
+        else:
+            pch_block = "\t\t\t\tGCC_PRECOMPILE_PREFIX_HEADER = YES;\n\t\t\t\tGCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;"
+            mod_hooks = ""
         for cfg_name, cfg_id in [("Debug", dbg_cfg_id), ("Release", rel_cfg_id)]:
             pbx_configs.append(
                 f"""\t\t{cfg_id} /* {cfg_name} */ = {{
@@ -321,8 +358,7 @@ def main() -> None:
 \t\t\t\tCONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/{tgt['subdir']}";
 \t\t\t\tCURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
 \t\t\t\tFRAMEWORK_SEARCH_PATHS = "";
-\t\t\t\tGCC_PRECOMPILE_PREFIX_HEADER = YES;
-\t\t\t\tGCC_PREFIX_HEADER = AirportMT7902/PrivateSPI.pch;
+{pch_block}
 \t\t\t\tGCC_PREPROCESSOR_DEFINITIONS = (
 \t\t\t\t\t"$(inherited)",
 {defs_lines}
@@ -334,7 +370,7 @@ def main() -> None:
 \t\t\t\t);
 \t\t\t\tMACOSX_DEPLOYMENT_TARGET = {tgt['deployment']};
 \t\t\t\tMODULE_NAME = {tgt['bundle_id']};
-\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = {tgt['bundle_id']};
+{mod_hooks}\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = {tgt['bundle_id']};
 \t\t\t\tPRODUCT_MODULE_NAME = {pname};
 \t\t\t\tPRODUCT_NAME = {pname};
 \t\t\t\tSYSTEM_HEADER_SEARCH_PATHS = "include";

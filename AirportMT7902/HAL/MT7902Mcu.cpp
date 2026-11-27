@@ -403,7 +403,7 @@ int MT7902Mcu::setEepromEfuseMode() {
         uint16_t len;
     } req = { 0 /* EE_MODE_EFUSE */, 1 /* EE_FORMAT_WHOLE */, 0 };
     return sendMessage(MCU_EXT_CMD_EFUSE_BUFFER_MODE, &req, sizeof(req), true,
-                       nullptr, 0, nullptr, 500);
+                       nullptr, 0, nullptr, 1500);
 }
 
 int MT7902Mcu::setMacEnable(uint8_t band, bool enable) {

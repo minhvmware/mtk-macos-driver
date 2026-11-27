@@ -34,6 +34,7 @@
 #include "../AirportMT7902/Net80211/MT7902Sta.hpp"
 #include "../AirportMT7902/Native/AirportMT7902WCL.hpp"
 #include "../MT7902BluetoothFirmware/MT7902BtProtocol.hpp"
+#include "../MT7902BluetoothPatcher/MT7902BtPatcherLogic.hpp"
 
 using namespace mt7902;
 
@@ -1080,6 +1081,52 @@ static void testWclWpa2FourWayHandshakeEndToEnd(MockMT7902AsicBus &bus, MT7902De
     dev.mac().releaseAllTokens();
 }
 
+static void testBluetoothPatcherLogic() {
+    printf("[9/9] Testing MT7902BluetoothPatcher HCI scan state machine & VM bypass...\n");
+    using namespace mt7902::bt;
+
+    // 1. USB VID/PID allowlist
+    TEST_CHECK(isMT7902BtUsbId(0x13D3, 0x3579), "AzureWave MT7902 BT 13d3:3579 must match");
+    TEST_CHECK(isMT7902BtUsbId(0x0489, 0xE0F2), "Foxconn MT7902 BT 0489:e0f2 must match");
+    TEST_CHECK(isMT7902BtUsbId(0x0E8D, 0x7902), "MediaTek MT7902 BT 0e8d:7902 must match");
+    TEST_CHECK(!isMT7902BtUsbId(0x05AC, 0x8290), "Apple BT USB must not match");
+    TEST_CHECK(!isMT7902BtUsbId(0x0627, 0x0001), "QEMU USB tablet must not match");
+
+    // 2. Class-OUT control request check
+    TEST_CHECK(isClassOutControlRequest(0x20), "Device Class-OUT must match");
+    TEST_CHECK(isClassOutControlRequest(0x21), "Interface Class-OUT must match");
+    TEST_CHECK(!isClassOutControlRequest(0xA0), "Class-IN must not match");
+    TEST_CHECK(!isClassOutControlRequest(0xC0), "Vendor-IN must not match");
+    TEST_CHECK(!isClassOutControlRequest(0x00), "Standard-OUT must not match");
+
+    // 3. VM bypass process filter
+    TEST_CHECK(isBluetoothVmBypassProcess("bluetoothd"), "bluetoothd must bypass VM check");
+    TEST_CHECK(isBluetoothVmBypassProcess("BlueTool"), "BlueTool must bypass VM check");
+    TEST_CHECK(!isBluetoothVmBypassProcess("kernel_task"), "kernel_task must not bypass VM check");
+    TEST_CHECK(!isBluetoothVmBypassProcess("softwareupdated"), "softwareupdated must not bypass VM check");
+    TEST_CHECK(!isBluetoothVmBypassProcess(nullptr), "nullptr must not match");
+
+    // 4. Static Random Address HCI command payload (opcode 0x2005 LE, plen 6, MSB bits[7:6]==11)
+    TEST_CHECK(sizeof(kStaticRandomAddressHciCmd) == 9, "HCI_LE_Set_Random_Address must be 9 bytes");
+    TEST_CHECK(getLe16(kStaticRandomAddressHciCmd) == kHciOpLeSetRandomAddress, "Opcode must be 0x2005");
+    TEST_CHECK(kStaticRandomAddressHciCmd[2] == 6, "Param length must be 6");
+    TEST_CHECK((kStaticRandomAddressHciCmd[8] & 0xC0U) == 0xC0U, "Static random addr MSB bits [7:6] must be 11");
+
+    // 5. State machine: inject once before first LE scan param, re-arm after HCI Reset
+    HciRandomAddrPatcherState st;
+    TEST_CHECK(!st.isRandomAddrSet(), "Initial state must be unset");
+    TEST_CHECK(st.onOutgoingHciOpcode(kHciOpLeSetScanParam), "First LE_Set_Scan_Param must inject random addr");
+    TEST_CHECK(st.isRandomAddrSet(), "State must be set after injection");
+    TEST_CHECK(!st.onOutgoingHciOpcode(kHciOpLeSetScanParam), "Second LE_Set_Scan_Param must not re-inject");
+    TEST_CHECK(!st.onOutgoingHciOpcode(kHciOpLeSetExtScanParam), "Ext scan param after set must not re-inject");
+    TEST_CHECK(!st.onOutgoingHciOpcode(kHciOpReset), "HCI Reset itself must not inject");
+    TEST_CHECK(!st.isRandomAddrSet(), "HCI Reset must clear random addr state");
+    TEST_CHECK(st.onOutgoingHciOpcode(kHciOpLeSetExtScanParam), "First LE_Set_Ext_Scan_Param after reset must inject");
+    st.reset();
+    TEST_CHECK(!st.onOutgoingHciOpcode(kHciOpLeSetRandomAddress), "Host-sent LE_Set_Random_Address marks initialized");
+    TEST_CHECK(!st.onOutgoingHciOpcode(kHciOpLeSetScanParam), "No duplicate injection when host already set random addr");
+}
+
 int main() {
     printf("======================================================================\n");
     printf(" MediaTek MT7902 macOS Native Driver — Hardware Simulation Test Suite\n");
@@ -1100,9 +1147,10 @@ int main() {
 
     testMacOSWclWireCodecs();
     testUsbBluetoothFirmwareLoader();
+    testBluetoothPatcherLogic();
 
     printf("======================================================================\n");
-    printf(" [PASS] All 8 MT7902 test suites completed with 0 errors!\n");
+    printf(" [PASS] All 9 MT7902 test suites completed with 0 errors!\n");
     printf("======================================================================\n");
     return 0;
 }

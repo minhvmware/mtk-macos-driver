@@ -133,9 +133,9 @@ bool MT7902BluetoothFirmware::start(IOService *provider) {
     makeUsable();
 
     if (OSDynamicCast(OSBoolean, usbDev->getProperty("MT7902BTFirmwareLoaded")) != kOSBooleanTrue) {
-        // Defer USB WMT firmware download by 1.5s at boot so PCIe AirportMT7902
-        // completes CONNSYS patch/RAM/EFUSE initialization without bus arbitration races.
-        IOSleep(1500);
+        // Defer USB WMT firmware download by 3.5s at boot so PCIe AirportMT7902
+        // completes CONNSYS patch/RAM/EFUSE initialization before BT WMT runs.
+        IOSleep(3500);
         if (!usbDev->open(this)) {
             MTK_BT_ERR("Failed to open IOUSBHostDevice for MT7902 Bluetooth");
             PMstop();

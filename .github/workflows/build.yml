@@ -27,7 +27,7 @@ jobs:
         run: make test
 
   macos-kexts:
-    name: Build All 5 macOS Kexts (Ventura / Sonoma / Sequoia / Tahoe / Bluetooth)
+    name: Build All 6 macOS Kexts (Ventura / Sonoma / Sequoia / Tahoe / BT Fw / BT Patcher)
     runs-on: macos-15
     needs: host-unit-tests
     steps:
@@ -38,13 +38,19 @@ jobs:
           repository: acidanthera/MacKernelSDK
           ref: 3f750085caa17ec3a7880f11c11bf4f48cd6a164
           path: MacKernelSDK
+      - name: Install Acidanthera Lilu 1.7.2 DEBUG SDK (for MT7902BluetoothPatcher)
+        run: |
+          curl -fsSL https://github.com/acidanthera/Lilu/releases/download/1.7.2/Lilu-1.7.2-DEBUG.zip -o /tmp/Lilu-1.7.2-DEBUG.zip
+          unzip -oq /tmp/Lilu-1.7.2-DEBUG.zip -d .
+          rm -f /tmp/Lilu-1.7.2-DEBUG.zip
+          test -f Lilu.kext/Contents/Resources/Library/plugin_start.cpp
       - name: Ensure Xcode project & firmware tables
         run: |
           if [ ! -f AirportMT7902/Firmware/MT7902WifiFwData.cpp ] || [ ! -f MT7902BluetoothFirmware/Firmware/MT7902BtFwData.cpp ]; then
             python3 scripts/pack_firmware.py --stub
           fi
           python3 scripts/generate_xcode_project.py
-      - name: Build all 5 native macOS .kext targets (x86_64 Release)
+      - name: Build all 6 native macOS .kext targets (x86_64 Release)
         run: |
           set -euo pipefail
           mkdir -p logs dist
@@ -54,6 +60,7 @@ jobs:
             "AirportMT7902-Sequoia:Sequoia:AirportMT7902.kext"
             "AirportMT7902-Tahoe:Tahoe:AirportMT7902.kext"
             "MT7902BluetoothFirmware:Bluetooth:MT7902BluetoothFirmware.kext"
+            "MT7902BluetoothPatcher:Bluetooth:MT7902BluetoothPatcher.kext"
           )
           FAILED=0
           for entry in "${TARGETS[@]}"; do

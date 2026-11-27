@@ -28,7 +28,7 @@ def make_kext_entry(bundle_path: str, exec_path: str, comment: str) -> dict:
     }
 
 
-def patch_config_plist(plist_path: Path) -> None:
+def patch_config_plist(plist_path: Path, include_bt_patcher: bool = False) -> None:
     with plist_path.open("rb") as f:
         cfg = plistlib.load(f)
 
@@ -45,13 +45,23 @@ def patch_config_plist(plist_path: Path) -> None:
             "Contents/MacOS/MT7902BluetoothFirmware",
             "MediaTek MT7902 USB Bluetooth 79xx WMT Firmware Loader",
         ),
+    ]
+    if include_bt_patcher:
+        wanted.append(
+            make_kext_entry(
+                "MT7902BluetoothPatcher.kext",
+                "Contents/MacOS/MT7902BluetoothPatcher",
+                "MediaTek MT7902 Bluetooth BLE Scan & VM Bypass Lilu Plugin",
+            )
+        )
+    wanted.append(
         make_kext_entry(
             "AirportMT7902.kext",
             "Contents/MacOS/AirportMT7902",
             "MediaTek MT7902 Native macOS Wi-Fi 6E Driver",
-        ),
-    ]
-    wanted_names = {w["BundlePath"] for w in wanted}
+        )
+    )
+    wanted_names = {w["BundlePath"] for w in wanted} | {"MT7902BluetoothPatcher.kext"}
     kernel_add[:] = [k for k in kernel_add if k.get("BundlePath") not in wanted_names]
     kernel_add.extend(wanted)
 
@@ -105,11 +115,19 @@ def main() -> None:
     parser.add_argument("--wifi-kext", type=Path, required=True, help="Path to AirportMT7902.kext")
     parser.add_argument("--bt-kext", type=Path, required=True, help="Path to MT7902BluetoothFirmware.kext")
     parser.add_argument("--bluetool-kext", type=Path, required=True, help="Path to BlueToolFixup.kext")
+    parser.add_argument("--bt-patcher-kext", type=Path, default=None, help="Optional path to MT7902BluetoothPatcher.kext")
+    parser.add_argument("--lilu-kext", type=Path, default=None, help="Optional path to updated Lilu.kext")
     args = parser.parse_args()
 
     img_spec = str(args.oc_img)
 
-    for kext in [args.bluetool_kext, args.bt_kext, args.wifi_kext]:
+    kexts = [args.bluetool_kext, args.bt_kext, args.wifi_kext]
+    if args.bt_patcher_kext is not None:
+        kexts.append(args.bt_patcher_kext)
+    if args.lilu_kext is not None:
+        kexts.append(args.lilu_kext)
+
+    for kext in kexts:
         if not kext.is_dir():
             raise FileNotFoundError(f"Missing kext bundle: {kext}")
         # Remove existing copy in image if present, then copy recursively
@@ -120,10 +138,11 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cfg_tmp = Path(tmp) / "config.plist"
         run(["mcopy", "-o", "-i", img_spec, "::/EFI/OC/config.plist", str(cfg_tmp)])
-        patch_config_plist(cfg_tmp)
+        patch_config_plist(cfg_tmp, include_bt_patcher=(args.bt_patcher_kext is not None))
         run(["mcopy", "-o", "-i", img_spec, str(cfg_tmp), "::/EFI/OC/config.plist"])
 
-    print(f"[OK] Injected AirportMT7902.kext, MT7902BluetoothFirmware.kext & BlueToolFixup.kext into {args.oc_img}")
+    names = ", ".join(k.name for k in kexts)
+    print(f"[OK] Injected {names} into {args.oc_img}")
 
 
 if __name__ == "__main__":

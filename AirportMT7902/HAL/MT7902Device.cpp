@@ -149,12 +149,14 @@ int MT7902Device::probeAndInit() {
                 mCap.has2Ghz, mCap.has5Ghz, mCap.has6Ghz, mCap.nss, mCap.supportsHe);
 
         // Step 8: Configure EEPROM EFUSE mode + MAC hardware registers.
-        // Note: if CONNSYS Bluetooth WMT firmware has already locked shared EFUSE
-        // arbitration on warm/concurrent boot, EFUSE_BUFFER_MODE may not send EXT_ACK
-        // even though EFUSE mode is already active (verified by getNicCapability above).
+        // If CONNSYS Bluetooth WMT firmware download collided during EFUSE_BUFFER_MODE,
+        // retry the full WFSYS init sequence cleanly instead of leaving the Wi-Fi MCU wedged.
         err = mMcu.setEepromEfuseMode();
-        if (err != kOk)
-            MTK_LOG("setEepromEfuseMode returned %d (EFUSE already active via CONNSYS)", err);
+        if (err != kOk) {
+            MTK_ERR("setEepromEfuseMode failed (%d), retrying init", err);
+            mDma.cleanup();
+            continue;
+        }
         err = mMac.initHardware();
         if (err != kOk) {
             mDma.cleanup();
@@ -196,8 +198,18 @@ int MT7902Device::startRadio() {
 
     int err = mMcu.setMacEnable(0, true);
     if (err != kOk) {
-        MTK_ERR("setMacEnable(true) failed: %d", err);
-        return err;
+        MTK_ERR("setMacEnable(true) failed (%d), attempting hardware recovery", err);
+        shutdown();
+        err = probeAndInit();
+        if (err != kOk) {
+            MTK_ERR("Hardware recovery during startRadio failed: %d", err);
+            return err;
+        }
+        err = mMcu.setMacEnable(0, true);
+        if (err != kOk) {
+            MTK_ERR("setMacEnable(true) still failed after recovery: %d", err);
+            return err;
+        }
     }
 
     // Populate regulatory channel domain in firmware (matching __mt7921_start);

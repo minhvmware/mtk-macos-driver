@@ -83,6 +83,9 @@
 		10693D085A39FE7A4C77E7DA /* MT7902BtProtocol.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 346CD19DF9520EC79271EFFC /* MT7902BtProtocol.cpp */; };
 		D0E804619D8F254594330E35 /* MT7902BluetoothFirmware.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E32B3423CEB1D09080BFB734 /* MT7902BluetoothFirmware.cpp */; };
 		6C40171111B4F7AEEE86BABE /* libkmod.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1ED45FA9ED9C27E52497A9B2 /* libkmod.a */; };
+		D235502691028B16D51E77D7 /* plugin_start.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E0328AFDD1C4DBBA2B4DAB4B /* plugin_start.cpp */; };
+		369771638F3A598437298138 /* MT7902BluetoothPatcher.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26E89849513732CEA9677895 /* MT7902BluetoothPatcher.cpp */; };
+		8AAEFC76DD831EFB82CEA9EC /* libkmod.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1ED45FA9ED9C27E52497A9B2 /* libkmod.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -130,12 +133,17 @@
 		ED3D5423DBFF8AFC0A2B34EF /* MT7902Wpa2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Wpa2.cpp; path = AirportMT7902/Net80211/MT7902Wpa2.cpp; sourceTree = "<group>"; };
 		02C9D257EBE878D4B2D4652D /* MT7902Wpa2.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Wpa2.hpp; path = AirportMT7902/Net80211/MT7902Wpa2.hpp; sourceTree = "<group>"; };
 		BBF9D2DCDD7B9BB49861DEF4 /* PrivateSPI.pch */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = PrivateSPI.pch; path = AirportMT7902/PrivateSPI.pch; sourceTree = "<group>"; };
+		E0328AFDD1C4DBBA2B4DAB4B /* plugin_start.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = plugin_start.cpp; path = Lilu.kext/Contents/Resources/Library/plugin_start.cpp; sourceTree = "<group>"; };
 		66F6D0351BF73FDEBBC05DD4 /* MT7902BtFwData.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902BtFwData.cpp; path = MT7902BluetoothFirmware/Firmware/MT7902BtFwData.cpp; sourceTree = "<group>"; };
 		1B5218971158B96462036B78 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = MT7902BluetoothFirmware/Info.plist; sourceTree = "<group>"; };
 		E32B3423CEB1D09080BFB734 /* MT7902BluetoothFirmware.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902BluetoothFirmware.cpp; path = MT7902BluetoothFirmware/MT7902BluetoothFirmware.cpp; sourceTree = "<group>"; };
 		90C09C71C2FC211A22A3236C /* MT7902BluetoothFirmware.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902BluetoothFirmware.hpp; path = MT7902BluetoothFirmware/MT7902BluetoothFirmware.hpp; sourceTree = "<group>"; };
 		346CD19DF9520EC79271EFFC /* MT7902BtProtocol.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902BtProtocol.cpp; path = MT7902BluetoothFirmware/MT7902BtProtocol.cpp; sourceTree = "<group>"; };
 		ABE51E9B4B237C9E8F7F9EA3 /* MT7902BtProtocol.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902BtProtocol.hpp; path = MT7902BluetoothFirmware/MT7902BtProtocol.hpp; sourceTree = "<group>"; };
+		621FC450741CC57DF09C1839 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = MT7902BluetoothPatcher/Info.plist; sourceTree = "<group>"; };
+		26E89849513732CEA9677895 /* MT7902BluetoothPatcher.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902BluetoothPatcher.cpp; path = MT7902BluetoothPatcher/MT7902BluetoothPatcher.cpp; sourceTree = "<group>"; };
+		42E511B0492A561E0C36151B /* MT7902BluetoothPatcher.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902BluetoothPatcher.hpp; path = MT7902BluetoothPatcher/MT7902BluetoothPatcher.hpp; sourceTree = "<group>"; };
+		DCF9FA26B6D643119450DD7E /* MT7902BtPatcherLogic.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902BtPatcherLogic.hpp; path = MT7902BluetoothPatcher/MT7902BtPatcherLogic.hpp; sourceTree = "<group>"; };
 		7CF4AF55393779CAF5831F35 /* MT7902Common.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Common.hpp; path = include/MT7902Common.hpp; sourceTree = "<group>"; };
 		1ED45FA9ED9C27E52497A9B2 /* libkmod.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libkmod.a; path = MacKernelSDK/Library/x86_64/libkmod.a; sourceTree = "<group>"; };
 		83A6F017D00A29FF00CABF64 /* AirportMT7902.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AirportMT7902.kext; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -143,6 +151,7 @@
 		8E791FF15542054969F21725 /* AirportMT7902.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AirportMT7902.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		12C9846C10A748128F181BF1 /* AirportMT7902.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AirportMT7902.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		6D361BD9A5FE8A7F512AF9F6 /* MT7902BluetoothFirmware.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MT7902BluetoothFirmware.kext; sourceTree = BUILT_PRODUCTS_DIR; };
+		E3C17FDD7FC8C1E51AB0A869 /* MT7902BluetoothPatcher.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MT7902BluetoothPatcher.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -183,6 +192,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				6C40171111B4F7AEEE86BABE /* libkmod.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6885206C79AD645B15831B70 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8AAEFC76DD831EFB82CEA9EC /* libkmod.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -236,12 +253,17 @@
 				ED3D5423DBFF8AFC0A2B34EF /* MT7902Wpa2.cpp */,
 				02C9D257EBE878D4B2D4652D /* MT7902Wpa2.hpp */,
 				BBF9D2DCDD7B9BB49861DEF4 /* PrivateSPI.pch */,
+				E0328AFDD1C4DBBA2B4DAB4B /* plugin_start.cpp */,
 				66F6D0351BF73FDEBBC05DD4 /* MT7902BtFwData.cpp */,
 				1B5218971158B96462036B78 /* Info.plist */,
 				E32B3423CEB1D09080BFB734 /* MT7902BluetoothFirmware.cpp */,
 				90C09C71C2FC211A22A3236C /* MT7902BluetoothFirmware.hpp */,
 				346CD19DF9520EC79271EFFC /* MT7902BtProtocol.cpp */,
 				ABE51E9B4B237C9E8F7F9EA3 /* MT7902BtProtocol.hpp */,
+				621FC450741CC57DF09C1839 /* Info.plist */,
+				26E89849513732CEA9677895 /* MT7902BluetoothPatcher.cpp */,
+				42E511B0492A561E0C36151B /* MT7902BluetoothPatcher.hpp */,
+				DCF9FA26B6D643119450DD7E /* MT7902BtPatcherLogic.hpp */,
 				7CF4AF55393779CAF5831F35 /* MT7902Common.hpp */,
 				1ED45FA9ED9C27E52497A9B2 /* libkmod.a */,
 				00C45FD35CB0F9C5F764F070 /* Products */,
@@ -256,6 +278,7 @@
 				8E791FF15542054969F21725 /* AirportMT7902.kext */,
 				12C9846C10A748128F181BF1 /* AirportMT7902.kext */,
 				6D361BD9A5FE8A7F512AF9F6 /* MT7902BluetoothFirmware.kext */,
+				E3C17FDD7FC8C1E51AB0A869 /* MT7902BluetoothPatcher.kext */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -343,6 +366,22 @@
 			productReference = 6D361BD9A5FE8A7F512AF9F6 /* MT7902BluetoothFirmware.kext */;
 			productType = "com.apple.product-type.kernel-extension";
 		};
+		35F1628F9B8F4D319AD9502A /* MT7902BluetoothPatcher */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 37EC9E210DEC478FD2253946 /* Build configuration list for PBXNativeTarget "MT7902BluetoothPatcher" */;
+			buildPhases = (
+				971873A809A772867C82347E /* Sources */,
+				6885206C79AD645B15831B70 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MT7902BluetoothPatcher;
+			productName = MT7902BluetoothPatcher;
+			productReference = E3C17FDD7FC8C1E51AB0A869 /* MT7902BluetoothPatcher.kext */;
+			productType = "com.apple.product-type.kernel-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -368,6 +407,7 @@
 				DB425E97E5C31DEC3B7C5652 /* AirportMT7902-Sequoia */,
 				992BD4144A434205A62BDEED /* AirportMT7902-Tahoe */,
 				83E1B716DD38FEFBDAD5F8D5 /* MT7902BluetoothFirmware */,
+				35F1628F9B8F4D319AD9502A /* MT7902BluetoothPatcher */,
 			);
 		};
 /* End PBXProject section */
@@ -476,6 +516,15 @@
 				5305D02CD783A738B3A1515A /* MT7902BtFwData.cpp in Sources */,
 				10693D085A39FE7A4C77E7DA /* MT7902BtProtocol.cpp in Sources */,
 				D0E804619D8F254594330E35 /* MT7902BluetoothFirmware.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		971873A809A772867C82347E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D235502691028B16D51E77D7 /* plugin_start.cpp in Sources */,
+				369771638F3A598437298138 /* MT7902BluetoothPatcher.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -778,6 +827,66 @@
 			};
 			name = Release;
 		};
+		CF5AFDAF2A8743FE063B1424 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Bluetooth";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = NO;
+				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/Lilu.kext/Contents/Resources";
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"MODULE_VERSION=$(MODULE_VERSION)",
+					"PRODUCT_NAME=$(PRODUCT_NAME)",
+				);
+				INFOPLIST_FILE = MT7902BluetoothPatcher/Info.plist;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MODULE_NAME = com.mtk.MT7902BluetoothPatcher;
+				MODULE_START = MT7902BluetoothPatcher_kern_start;
+				MODULE_STOP = MT7902BluetoothPatcher_kern_stop;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.MT7902BluetoothPatcher;
+				PRODUCT_MODULE_NAME = MT7902BluetoothPatcher;
+				PRODUCT_NAME = MT7902BluetoothPatcher;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Debug;
+		};
+		EDE8E07D8EB06CC3F2620B10 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CONFIGURATION_BUILD_DIR = "$(SYMROOT)/$(CONFIGURATION)/Bluetooth";
+				CURRENT_PROJECT_VERSION = "$(MODULE_VERSION)";
+				FRAMEWORK_SEARCH_PATHS = "";
+				GCC_PRECOMPILE_PREFIX_HEADER = NO;
+				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/Lilu.kext/Contents/Resources";
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"MODULE_VERSION=$(MODULE_VERSION)",
+					"PRODUCT_NAME=$(PRODUCT_NAME)",
+				);
+				INFOPLIST_FILE = MT7902BluetoothPatcher/Info.plist;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MODULE_NAME = com.mtk.MT7902BluetoothPatcher;
+				MODULE_START = MT7902BluetoothPatcher_kern_start;
+				MODULE_STOP = MT7902BluetoothPatcher_kern_stop;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mtk.MT7902BluetoothPatcher;
+				PRODUCT_MODULE_NAME = MT7902BluetoothPatcher;
+				PRODUCT_NAME = MT7902BluetoothPatcher;
+				SYSTEM_HEADER_SEARCH_PATHS = "include";
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Release;
+		};
 		6BFDD5F520C2B21B56746682 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -889,6 +998,15 @@
 			buildConfigurations = (
 				C9CDCB64335BB30E2BF26C30 /* Debug */,
 				81FE215FE3F8F0B62D6C8638 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		37EC9E210DEC478FD2253946 /* Build configuration list for PBXNativeTarget "MT7902BluetoothPatcher" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CF5AFDAF2A8743FE063B1424 /* Debug */,
+				EDE8E07D8EB06CC3F2620B10 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
