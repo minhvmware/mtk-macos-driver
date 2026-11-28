@@ -28,7 +28,7 @@ jobs:
 
   macos-kexts:
     name: Build All 6 macOS Kexts (Ventura / Sonoma / Sequoia / Tahoe / BT Fw / BT Patcher)
-    runs-on: macos-15
+    runs-on: macos-15-intel
     needs: host-unit-tests
     steps:
       - uses: actions/checkout@v4
