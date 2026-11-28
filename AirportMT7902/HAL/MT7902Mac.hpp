@@ -15,9 +15,10 @@ namespace mt7902 {
 
 struct TxTokenSlot {
     bool inUse = false;
+    bool pooledBuf = false;
     uint16_t wcid = 0;
     void *osPacket = nullptr;
-    DmaBuffer dmaBuf; // Owned scratch DMA buffer for copy-path TX
+    DmaBuffer dmaBuf; // Owned scratch DMA buffer for copy-path TX (reused when pooledBuf == true)
 };
 
 struct TxPacketOptions {
@@ -39,6 +40,7 @@ struct TxPacketOptions {
 
 struct ParsedRxFrame {
     bool valid = false;
+    bool rateValid = false;
     bool is8023 = false;      // HW header-translated Ethernet frame
     bool decrypted = false;
     bool fcsError = false;
@@ -79,6 +81,7 @@ public:
 
     int initHardware();
     void initBand(uint8_t band);
+    void setTiming(bool is2Ghz, uint8_t slotTime = 9);
     bool wtblUpdate(uint16_t idx, uint32_t mask);
 
     // TX token management (MT7902 HW cut-through tokens)

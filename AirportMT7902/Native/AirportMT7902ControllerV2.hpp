@@ -138,6 +138,7 @@ private:
     mt7902::MT7902Sta *mSta = nullptr;
     uint32_t mPowerState = 1;
     bool mDriverAvailableReported = false;
+    uint8_t mTxLinear[2048] = {};
 
     // CoreCapture & FaultReporter objects required by Sonoma/Sequoia/Tahoe IO80211Family
     CCPipe *mLogPipe = nullptr;

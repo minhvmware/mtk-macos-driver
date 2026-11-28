@@ -39,6 +39,31 @@ void MT7902Mac::initBand(uint8_t band) {
     mBus.clear(MT_DMA_DCR0(band), MT_DMA_DCR0_RXD_G5_EN);
 }
 
+void MT7902Mac::setTiming(bool is2Ghz, uint8_t slotTime) {
+    // Wire-exact match to Linux mt792x_mac_set_timeing():
+    // 2.4 GHz requires SIFS = 10 us; 5/6 GHz requires SIFS = 16 us for hardware ACK/BlockAck timing!
+    uint32_t cck = fieldPrep(MT_TIMEOUT_VAL_PLCP, 231U) | fieldPrep(MT_TIMEOUT_VAL_CCA, 48U);
+    uint32_t ofdm = fieldPrep(MT_TIMEOUT_VAL_PLCP, 60U) | fieldPrep(MT_TIMEOUT_VAL_CCA, 28U);
+    uint32_t sifs = is2Ghz ? 10U : 16U;
+
+    mBus.set(MT_ARB_SCR(0), MT_ARB_SCR_TX_DISABLE | MT_ARB_SCR_RX_DISABLE);
+    mBus.delayUs(1);
+
+    mBus.wr(MT_TMAC_CDTR(0), cck);
+    mBus.wr(MT_TMAC_ODTR(0), ofdm);
+    mBus.wr(MT_TMAC_ICR0(0),
+            fieldPrep(MT_IFS_EIFS, 360U) |
+            fieldPrep(MT_IFS_RIFS, 2U) |
+            fieldPrep(MT_IFS_SIFS, sifs) |
+            fieldPrep(MT_IFS_SLOT, slotTime));
+
+    uint32_t cfend = (slotTime < 20 || !is2Ghz)
+                         ? MT792x_CFEND_RATE_DEFAULT
+                         : MT792x_CFEND_RATE_11B;
+    mBus.rmw(MT_AGG_ACR0(0), MT_AGG_ACR_CFEND_RATE, fieldPrep(MT_AGG_ACR_CFEND_RATE, cfend));
+    mBus.clear(MT_ARB_SCR(0), MT_ARB_SCR_TX_DISABLE | MT_ARB_SCR_RX_DISABLE);
+}
+
 int MT7902Mac::initHardware() {
     // Match Linux mt7921_mac_init()
     mBus.rmw(MT_MDP_DCR1, MT_MDP_DCR1_MAX_RX_LEN,
@@ -61,10 +86,17 @@ int MT7902Mac::allocToken(uint16_t wcid, void *osPacket, const DmaBuffer &dmaBuf
     for (uint32_t i = 0; i < MT7902_TOKEN_SIZE; ++i) {
         uint16_t id = static_cast<uint16_t>((mNextTokenCursor + i) % MT7902_TOKEN_SIZE);
         if (!mTokens[id].inUse) {
+            if (dmaBuf.virt && mTokens[id].pooledBuf && mTokens[id].dmaBuf.virt) {
+                mBus.freeDma(mTokens[id].dmaBuf);
+                mTokens[id].pooledBuf = false;
+            }
             mTokens[id].inUse = true;
             mTokens[id].wcid = wcid;
             mTokens[id].osPacket = osPacket;
-            mTokens[id].dmaBuf = dmaBuf;
+            if (dmaBuf.virt) {
+                mTokens[id].dmaBuf = dmaBuf;
+                mTokens[id].pooledBuf = false;
+            }
             mActiveTokens++;
             mNextTokenCursor = static_cast<uint16_t>((id + 1U) % MT7902_TOKEN_SIZE);
             return id;
@@ -77,7 +109,15 @@ bool MT7902Mac::releaseToken(uint16_t tokenId, TxTokenSlot &outSlot) {
     if (!mTokens || tokenId >= MT7902_TOKEN_SIZE || !mTokens[tokenId].inUse)
         return false;
     outSlot = mTokens[tokenId];
-    mTokens[tokenId] = {};
+    if (mTokens[tokenId].pooledBuf) {
+        // Keep persistent pooled DMA buffer attached to this slot for zero-alloc reuse
+        outSlot.dmaBuf = {};
+        mTokens[tokenId].inUse = false;
+        mTokens[tokenId].wcid = 0;
+        mTokens[tokenId].osPacket = nullptr;
+    } else {
+        mTokens[tokenId] = {};
+    }
     if (mActiveTokens > 0)
         mActiveTokens--;
     return true;
@@ -87,11 +127,9 @@ void MT7902Mac::releaseAllTokens(void (*onFree)(void *osPacket, void *ctx), void
     if (!mTokens)
         return;
     for (uint32_t i = 0; i < MT7902_TOKEN_SIZE; ++i) {
-        if (!mTokens[i].inUse)
-            continue;
         if (mTokens[i].dmaBuf.virt)
             mBus.freeDma(mTokens[i].dmaBuf);
-        if (mTokens[i].osPacket && onFree)
+        if (mTokens[i].inUse && mTokens[i].osPacket && onFree)
             onFree(mTokens[i].osPacket, ctx);
         mTokens[i] = {};
     }
@@ -205,21 +243,26 @@ int MT7902Mac::transmitFrame(const uint8_t *frame, size_t frameLen, const TxPack
     if (!frame || frameLen < kEthHdrLen || frameLen > 2048)
         return kErrInvalid;
 
-    DmaBuffer payloadBuf;
-    if (!mBus.allocDma(frameLen, 64, payloadBuf))
-        return kErrNoMem;
-
-    memcpy(payloadBuf.virt, frame, frameLen);
-    mBus.syncDmaForDevice(payloadBuf);
-
-    int tokenId = allocToken(opts.wcid, nullptr, payloadBuf);
-    if (tokenId < 0) {
-        mBus.freeDma(payloadBuf);
+    DmaBuffer emptyBuf;
+    int tokenId = allocToken(opts.wcid, nullptr, emptyBuf);
+    if (tokenId < 0)
         return tokenId;
+
+    TxTokenSlot &slotRef = mTokens[tokenId];
+    if (!slotRef.dmaBuf.virt) {
+        if (!mBus.allocDma(2048, 64, slotRef.dmaBuf)) {
+            TxTokenSlot dummy;
+            releaseToken(static_cast<uint16_t>(tokenId), dummy);
+            return kErrNoMem;
+        }
+        slotRef.pooledBuf = true;
     }
 
+    memcpy(slotRef.dmaBuf.virt, frame, frameLen);
+    mBus.syncDmaForDevice(slotRef.dmaBuf);
+
     Mt7902Txwi txwi;
-    buildTxwi(txwi, frame, frameLen, payloadBuf.phys,
+    buildTxwi(txwi, frame, frameLen, slotRef.dmaBuf.phys,
               static_cast<uint16_t>(tokenId), opts);
 
     // Submit 64-byte TXWI in desc.buf0 (hardware fetches payload via TXP.ptr[0].buf0)
@@ -352,10 +395,54 @@ bool MT7902Mac::parseRxDescriptor(const uint8_t *raw, size_t rawLen,
         pos += 8;
 
         out.phyMode = static_cast<uint8_t>(fieldGet(MT_PRXV_TX_MODE, v0));
-        out.mcs = static_cast<uint8_t>(fieldGet(MT_PRXV_TX_RATE, v0));
+        uint8_t rawRate = static_cast<uint8_t>(fieldGet(MT_PRXV_TX_RATE, v0));
         out.nss = static_cast<uint8_t>(fieldGet(MT_PRXV_NSTS, v0) + 1U);
+        if (fieldGet(MT_PRXV_HT_STBC, v0) && out.nss > 1)
+            out.nss = static_cast<uint8_t>(out.nss >> 1);
         out.bw = static_cast<uint8_t>(fieldGet(MT_PRXV_FRAME_MODE, v0));
         out.gi = static_cast<uint8_t>(fieldGet(MT_PRXV_HT_SGI, v0));
+
+        // Validate P-RXV mode/rate/bw matching Linux mt76_connac2_mac_fill_rx_rate()
+        // so A-MSDU subframe fill patterns (e.g. 0x55555555) never corrupt link MCS/rate.
+        bool modeRateOk = false;
+        if (out.bw <= 3U) { // 0=20, 1=40, 2=80, 3=160 MHz
+            if (out.phyMode == MT_PHY_TYPE_OFDM) {
+                switch (rawRate & 0x0fU) {
+                case 0x0b: out.mcs = 0; modeRateOk = true; break; // 6 Mbps
+                case 0x0f: out.mcs = 1; modeRateOk = true; break; // 9 Mbps
+                case 0x0a: out.mcs = 2; modeRateOk = true; break; // 12 Mbps
+                case 0x0e: out.mcs = 3; modeRateOk = true; break; // 18 Mbps
+                case 0x09: out.mcs = 4; modeRateOk = true; break; // 24 Mbps
+                case 0x0d: out.mcs = 5; modeRateOk = true; break; // 36 Mbps
+                case 0x08: out.mcs = 6; modeRateOk = true; break; // 48 Mbps
+                case 0x0c: out.mcs = 7; modeRateOk = true; break; // 54 Mbps
+                default: break;
+                }
+            } else if (out.phyMode == MT_PHY_TYPE_CCK) {
+                if (rawRate <= 11) {
+                    out.mcs = static_cast<uint8_t>(rawRate & 0x03U);
+                    modeRateOk = true;
+                }
+            } else if (out.phyMode == MT_PHY_TYPE_HT || out.phyMode == MT_PHY_TYPE_HT_GF) {
+                if (rawRate <= 31) {
+                    out.mcs = rawRate;
+                    modeRateOk = true;
+                }
+            } else if (out.phyMode == MT_PHY_TYPE_VHT) {
+                if (rawRate <= 11) {
+                    out.mcs = rawRate;
+                    modeRateOk = true;
+                }
+            } else if (out.phyMode >= MT_PHY_TYPE_HE_SU && out.phyMode <= MT_PHY_TYPE_HE_MU) {
+                // Strip Connac2 DCM (BIT(4)) and ER_SU_106T (BIT(5)) bits
+                uint8_t heMcs = static_cast<uint8_t>(rawRate & 0x0fU);
+                if (heMcs <= 11) {
+                    out.mcs = heMcs;
+                    modeRateOk = true;
+                }
+            }
+        }
+        out.rateValid = modeRateOk;
 
         if (rxd1 & MT_RXD1_NORMAL_GROUP_5) {
             if (pos + 72 >= rawLen) return false;

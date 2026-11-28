@@ -52,6 +52,7 @@ struct IrqStatus {
     bool rxMcuEvent = false;
     bool rxData = false;
     bool mcuWakeRx = false;
+    bool mcuStopDma = false;
 };
 
 class MT7902Dma {
@@ -74,6 +75,9 @@ public:
     int txSubmitDual(DmaQueueId qid, const void *hdr, size_t hdrLen,
                      uint64_t payloadPhys, size_t payloadLen, void *cookie);
     uint32_t txCleanup(DmaQueueId qid, void (*onFree)(void *cookie, void *ctx) = nullptr, void *ctx = nullptr);
+    uint16_t txQueued(DmaQueueId qid) const {
+        return (qid < kDmaQueueCount && mRings[qid].initialized) ? mRings[qid].queued : 0;
+    }
 
     // RX operations: refill ring descriptors and dequeue completed packets
     int rxRefill(DmaQueueId qid);

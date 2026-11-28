@@ -32,10 +32,14 @@ bool MT7902IOKitBus::attach(IOPCIDevice *pciDev) {
 
     // Check PCIe capability for ASPM support
     UInt8 pcieCap = 0;
+    UInt16 lnkCtl = 0;
     if (pciDev->findPCICapability(kIOPCIPCIExpressCapability, &pcieCap) != 0 && pcieCap != 0) {
         UInt32 lnkCap = pciDev->configRead32(pcieCap + 0x0c);
         mAspmSupported = ((lnkCap >> 10) & 0x3U) != 0;
+        lnkCtl = pciDev->configRead16(pcieCap + 0x10);
     }
+    UInt16 pciCmd = pciDev->configRead16(kIOPCIConfigCommand);
+    UInt16 pciSta = pciDev->configRead16(kIOPCIConfigStatus);
 
     mBar0Map = pciDev->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0);
     if (!mBar0Map) {
@@ -45,8 +49,9 @@ bool MT7902IOKitBus::attach(IOPCIDevice *pciDev) {
 
     mBar0Virt = reinterpret_cast<volatile uint8_t *>(mBar0Map->getVirtualAddress());
     mBar0Len = mBar0Map->getLength();
-    MTK_LOG("Mapped MT7902 BAR0 (0x%04x:0x%04x) len=%llu bytes",
-            mVendorId, mDeviceId, static_cast<unsigned long long>(mBar0Len));
+    MTK_LOG("Mapped MT7902 BAR0 (0x%04x:0x%04x) len=%llu cmd=0x%04x sta=0x%04x lnkctl=0x%04x aspm=%d",
+            mVendorId, mDeviceId, static_cast<unsigned long long>(mBar0Len),
+            pciCmd, pciSta, lnkCtl, mAspmSupported ? 1 : 0);
     return mBar0Virt != nullptr && mBar0Len >= 0x100000;
 }
 
@@ -84,7 +89,7 @@ bool MT7902IOKitBus::allocDma(size_t size, size_t align, DmaBuffer &out) {
 
     IOBufferMemoryDescriptor *mem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
         kernel_task,
-        kIODirectionInOut | kIOMemoryPhysicallyContiguous | kIOMapInhibitCache,
+        kIODirectionInOut | kIOMemoryPhysicallyContiguous | kIOMapDefaultCache,
         size,
         physMask);
     if (!mem)

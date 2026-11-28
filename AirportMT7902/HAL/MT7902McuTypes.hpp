@@ -288,22 +288,36 @@ static constexpr uint8_t CONN_STATE_PORT_SECURE = 2;
 static constexpr uint16_t DEV_INFO_ACTIVE = 0;
 static constexpr uint16_t UNI_BSS_INFO_BASIC = 0;
 static constexpr uint16_t UNI_BSS_INFO_RLM = 2;
+static constexpr uint16_t UNI_BSS_INFO_BSS_COLOR = 4;
+static constexpr uint16_t UNI_BSS_INFO_HE_BASIC = 5;
 static constexpr uint16_t UNI_BSS_INFO_QBSS = 15;
 static constexpr uint16_t UNI_BSS_INFO_PS = 21;
 static constexpr uint16_t UNI_BSS_INFO_BCNFT = 22;
 
 static constexpr uint16_t STA_REC_BASIC = 0x00;
 static constexpr uint16_t STA_REC_RA = 0x01;
+static constexpr uint16_t STA_REC_BA = 0x06;
 static constexpr uint16_t STA_REC_STATE = 0x07;
 static constexpr uint16_t STA_REC_HT = 0x09;
 static constexpr uint16_t STA_REC_VHT = 0x0a;
 static constexpr uint16_t STA_REC_KEY = 0x0c;
 static constexpr uint16_t STA_REC_WTBL = 0x0d;
 static constexpr uint16_t STA_REC_HE = 0x0e;
+static constexpr uint16_t STA_REC_HW_AMSDU = 0x0f;
 static constexpr uint16_t STA_REC_KEY_V2 = 0x11;
 static constexpr uint16_t STA_REC_PHY = 0x15;
 static constexpr uint16_t STA_REC_HE_6G = 0x17;
+static constexpr uint16_t STA_REC_HE_V2 = 0x19;
 static constexpr uint16_t STA_REC_REMOVE = 0x25;
+
+// STA_REC_HE capability bits (matching Linux mt76_connac_mcu.h)
+static constexpr uint32_t STA_REC_HE_CAP_HTC = MTK_BIT(0);
+static constexpr uint32_t STA_REC_HE_CAP_AMSDU_IN_AMPDU = MTK_BIT(4);
+static constexpr uint32_t STA_REC_HE_CAP_LDPC = MTK_BIT(6);
+static constexpr uint32_t STA_REC_HE_CAP_LE_EQ_80M_RX_STBC = MTK_BIT(10);
+static constexpr uint32_t STA_REC_HE_CAP_SU_PPDU_1LTF_8US_GI = MTK_BIT(13);
+static constexpr uint32_t STA_REC_HE_CAP_NDP_4LTF_3DOT2MS_GI = MTK_BIT(17);
+static constexpr uint8_t CMD_HE_MCS_BW_NUM = 3;
 
 // WTBL nested TLV IDs & operations (matching Linux mt76_connac_mcu.h)
 static constexpr uint16_t WTBL_GENERIC = 0x00;
@@ -311,7 +325,12 @@ static constexpr uint16_t WTBL_RX = 0x01;
 static constexpr uint16_t WTBL_HT = 0x02;
 static constexpr uint16_t WTBL_VHT = 0x03;
 static constexpr uint16_t WTBL_HDR_TRANS = 0x06;
+static constexpr uint16_t WTBL_BA = 0x08;
 static constexpr uint16_t WTBL_SMPS = 0x0d;
+
+static constexpr uint8_t MT_BA_TYPE_ORIGINATOR = 1;
+static constexpr uint8_t MT_BA_TYPE_RECIPIENT = 2;
+static constexpr uint8_t RST_BA_MAC_TID_MATCH = 0;
 
 static constexpr uint8_t WTBL_RESET_AND_SET = 1;
 static constexpr uint8_t WTBL_SET = 2;
@@ -363,6 +382,7 @@ enum ChanBandwidth : uint8_t {
 enum ChSwitchReason : uint8_t {
     CH_SWITCH_NORMAL = 0,
     CH_SWITCH_SCAN = 3,
+    CH_SWITCH_DFS = 5,
     CH_SWITCH_SCAN_BYPASS_DPD = 9,
 };
 
@@ -434,6 +454,26 @@ struct __attribute__((packed)) BssRlmTlv {
     uint8_t pad[2];
 };
 
+struct __attribute__((packed)) BssColorTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t enable;
+    uint8_t bss_color;
+    uint8_t rsv[2];
+};
+static_assert(sizeof(BssColorTlv) == 8, "BssColorTlv must be 8 bytes");
+
+struct __attribute__((packed)) BssHeBasicTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint16_t he_rts_thres;
+    uint8_t he_pe_duration;
+    uint8_t su_disable;
+    uint16_t max_nss_mcs[CMD_HE_MCS_BW_NUM];
+    uint8_t rsv[2];
+};
+static_assert(sizeof(BssHeBasicTlv) == 16, "BssHeBasicTlv must be 16 bytes");
+
 // STA_REC_UPDATE header + TLVs
 struct __attribute__((packed)) StaReqHdr {
     uint8_t bss_idx;
@@ -463,6 +503,70 @@ struct __attribute__((packed)) StaRecHtTlv {
     uint16_t rsv;
 };
 static_assert(sizeof(StaRecHtTlv) == 8, "StaRecHtTlv must be 8 bytes");
+
+struct __attribute__((packed)) StaRecVhtTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint32_t vht_cap;
+    uint16_t vht_rx_mcs_map;
+    uint16_t vht_tx_mcs_map;
+    uint8_t rts_bw_sig;
+    uint8_t rsv[3];
+};
+static_assert(sizeof(StaRecVhtTlv) == 16, "StaRecVhtTlv must be 16 bytes");
+
+struct __attribute__((packed)) StaRecAmsduTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t max_amsdu_num;
+    uint8_t max_mpdu_size;
+    uint8_t amsdu_en;
+    uint8_t rsv;
+};
+static_assert(sizeof(StaRecAmsduTlv) == 8, "StaRecAmsduTlv must be 8 bytes");
+
+struct __attribute__((packed)) StaRecHeTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint32_t he_cap;
+    uint8_t t_frame_dur;
+    uint8_t max_ampdu_exp;
+    uint8_t bw_set;
+    uint8_t device_class;
+    uint8_t dcm_tx_mode;
+    uint8_t dcm_tx_max_nss;
+    uint8_t dcm_rx_mode;
+    uint8_t dcm_rx_max_nss;
+    uint8_t dcm_max_ru;
+    uint8_t punc_pream_rx;
+    uint8_t pkt_ext;
+    uint8_t rsv1;
+    uint16_t max_nss_mcs[CMD_HE_MCS_BW_NUM];
+    uint8_t rsv2[2];
+};
+static_assert(sizeof(StaRecHeTlv) == 28, "StaRecHeTlv must be 28 bytes");
+
+struct __attribute__((packed)) StaRecHeV2Tlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t he_mac_cap[6];
+    uint8_t he_phy_cap[11];
+    uint8_t pkt_ext;
+    uint16_t max_nss_mcs[CMD_HE_MCS_BW_NUM];
+};
+static_assert(sizeof(StaRecHeV2Tlv) == 28, "StaRecHeV2Tlv must be 28 bytes");
+
+struct __attribute__((packed)) StaRecBaTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t tid;
+    uint8_t ba_type;
+    uint8_t amsdu;
+    uint8_t ba_en;
+    uint16_t ssn;
+    uint16_t winsize;
+};
+static_assert(sizeof(StaRecBaTlv) == 12, "StaRecBaTlv must be 12 bytes");
 
 struct __attribute__((packed)) StaRecRaInfoTlv {
     uint16_t tag;
@@ -556,6 +660,36 @@ struct __attribute__((packed)) WtblHtTlv {
     uint8_t rsv[4];
 };
 static_assert(sizeof(WtblHtTlv) == 12, "WtblHtTlv must be 12 bytes");
+
+struct __attribute__((packed)) WtblVhtTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t ldpc;
+    uint8_t dyn_bw;
+    uint8_t vht;
+    uint8_t txop_ps;
+    uint8_t rsv[4];
+};
+static_assert(sizeof(WtblVhtTlv) == 12, "WtblVhtTlv must be 12 bytes");
+
+struct __attribute__((packed)) WtblBaTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t tid;
+    uint8_t ba_type;
+    uint8_t rsv0[2];
+    uint16_t sn;
+    uint8_t ba_en;
+    uint8_t ba_winsize_idx;
+    uint16_t ba_winsize;
+    uint8_t peer_addr[6];
+    uint8_t rst_ba_tid;
+    uint8_t rst_ba_sel;
+    uint8_t rst_ba_sb;
+    uint8_t band_idx;
+    uint8_t rsv1[4];
+};
+static_assert(sizeof(WtblBaTlv) == 28, "WtblBaTlv must be 28 bytes");
 
 struct __attribute__((packed)) RocAcquireReq {
     uint8_t rsv_hdr[4];

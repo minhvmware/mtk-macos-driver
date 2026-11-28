@@ -114,26 +114,34 @@ bool MT7902ScanCache::parseBeaconOrProbeResp(const uint8_t *frame, size_t len,
             break;
         case 45: // HT Capabilities
             out.hasHt = true;
-            if (elen >= 2 && (getLe16(body) & MTK_BIT(1)))
-                out.bw = CMD_CBW_40MHZ;
             break;
         case 48: // RSN (WPA2/WPA3)
             parseRsnIe(body, elen, out);
             break;
-        case 61: // HT Operation
+        case 61: // HT Operation (primary channel + secondary channel offset / 40MHz)
             if (elen >= 1 && body[0] != 0) {
                 out.channel = body[0];
                 out.band = (out.channel > 14) ? kBand5GHz : kBand2GHz;
             }
+            if (elen >= 2 && (body[1] & 0x04U)) {
+                uint8_t sco = body[1] & 0x03U;
+                if (sco == 1) {
+                    out.bw = CMD_CBW_40MHZ;
+                    out.centerChannel = static_cast<uint8_t>(out.channel + 2U);
+                } else if (sco == 3 && out.channel > 2) {
+                    out.bw = CMD_CBW_40MHZ;
+                    out.centerChannel = static_cast<uint8_t>(out.channel - 2U);
+                }
+            }
             break;
         case 191: // VHT Capabilities
             out.hasVht = true;
-            if (out.bw < CMD_CBW_80MHZ)
-                out.bw = CMD_CBW_80MHZ;
             break;
-        case 192: // VHT Operation
-            if (elen >= 1 && body[0] >= 1)
-                out.bw = (body[0] == 2) ? CMD_CBW_160MHZ : CMD_CBW_80MHZ;
+        case 192: // VHT Operation (channel width + center_freq_seg0)
+            if (elen >= 2 && body[0] == 1 && body[1] != 0) {
+                out.bw = CMD_CBW_80MHZ;
+                out.centerChannel = body[1];
+            }
             break;
         case 221: // Vendor Specific (WPA1 / WMM)
             if (elen >= 4 && body[0] == 0x00 && body[1] == 0x50 && body[2] == 0xf2) {
@@ -146,14 +154,23 @@ bool MT7902ScanCache::parseBeaconOrProbeResp(const uint8_t *frame, size_t len,
             }
             break;
         case 255: // Extension IE (HE Capabilities = ext 35, HE Operation = ext 36)
-            if (elen >= 1 && (body[0] == 35 || body[0] == 36))
+            if (elen >= 1 && (body[0] == 35 || body[0] == 36)) {
                 out.hasHe = true;
+                if (body[0] == 36 && elen >= 5) {
+                    uint8_t colorInfo = body[4];
+                    if ((colorInfo & 0x80U) == 0) // BSS Color Disabled bit == 0
+                        out.bssColor = colorInfo & 0x3fU;
+                }
+            }
             break;
         default:
             break;
         }
         pos += 2 + elen;
     }
+
+    if (out.centerChannel == 0)
+        out.centerChannel = out.channel;
 
     return true;
 }

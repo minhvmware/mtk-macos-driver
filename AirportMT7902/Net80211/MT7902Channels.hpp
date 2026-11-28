@@ -33,12 +33,11 @@ static constexpr uint32_t kAppleChanFlag20Mhz = 0x0002;
 static constexpr uint32_t kAppleChanFlag40Mhz = 0x0004;
 static constexpr uint32_t kAppleChanFlag2Ghz = 0x0008;
 static constexpr uint32_t kAppleChanFlag5Ghz = 0x0010;
-static constexpr uint32_t kAppleChanFlagActive = 0x0020;
+static constexpr uint32_t kAppleChanFlagActive = 0x0080;
 static constexpr uint32_t kAppleChanFlagDfs = 0x0100;
 static constexpr uint32_t kAppleChanFlagExtAbv = 0x0200;
-static constexpr uint32_t kAppleChanFlagExtBlw = 0x0400;
-static constexpr uint32_t kAppleChanFlag80Mhz = 0x0800;
-static constexpr uint32_t kAppleChanFlag160Mhz = 0x1000;
+static constexpr uint32_t kAppleChanFlag80Mhz = 0x0400;
+static constexpr uint32_t kAppleChanFlag160Mhz = 0x0800;
 static constexpr uint32_t kAppleChanFlag6Ghz = 0x2000;
 
 size_t getSupportedChannels(bool has2g, bool has5g, bool has6g,

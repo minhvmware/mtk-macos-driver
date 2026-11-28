@@ -105,7 +105,7 @@ static constexpr uint32_t MT_INT_TX_DONE_FWDL = HOST_TX_DONE_INT_ENA16;
 static constexpr uint32_t MT_INT_TX_DONE_BAND0 = HOST_TX_DONE_INT_ENA0;
 static constexpr uint32_t MT_INT_TX_DONE_MCU = MT_INT_TX_DONE_MCU_WM | MT_INT_TX_DONE_FWDL;
 static constexpr uint32_t MT_INT_TX_DONE_ALL =
-    MT_INT_TX_DONE_MCU_WM | MT_INT_TX_DONE_BAND0 | genmask32(18, 4) | HOST_TX_DONE_INT_ENA15 | MT_INT_TX_DONE_FWDL;
+    MT_INT_TX_DONE_MCU_WM | genmask32(18, 4);
 
 static constexpr uint32_t MT_WFDMA0_GLO_CFG = MT_WFDMA0(0x208);
 static constexpr uint32_t MT_WFDMA0_GLO_CFG_TX_DMA_EN = MTK_BIT(0);
@@ -180,11 +180,25 @@ static constexpr uint32_t MT_WF_TMAC(uint8_t band, uint32_t ofs) {
 }
 static constexpr uint32_t MT_TMAC_CDTR(uint8_t b) { return MT_WF_TMAC(b, 0x090); }
 static constexpr uint32_t MT_TMAC_ODTR(uint8_t b) { return MT_WF_TMAC(b, 0x094); }
+static constexpr uint32_t MT_TIMEOUT_VAL_PLCP = genmask32(15, 0);
+static constexpr uint32_t MT_TIMEOUT_VAL_CCA = genmask32(31, 16);
 static constexpr uint32_t MT_TMAC_ICR0(uint8_t b) { return MT_WF_TMAC(b, 0x0a4); }
+static constexpr uint32_t MT_IFS_EIFS = genmask32(8, 0);
+static constexpr uint32_t MT_IFS_RIFS = genmask32(14, 10);
+static constexpr uint32_t MT_IFS_SIFS = genmask32(22, 16);
+static constexpr uint32_t MT_IFS_SLOT = genmask32(30, 24);
 static constexpr uint32_t MT_TMAC_CTCR0(uint8_t b) { return MT_WF_TMAC(b, 0x0f4); }
 static constexpr uint32_t MT_TMAC_CTCR0_INS_DDLMT_REFTIME = genmask32(5, 0);
 static constexpr uint32_t MT_TMAC_CTCR0_INS_DDLMT_EN = MTK_BIT(17);
 static constexpr uint32_t MT_TMAC_CTCR0_INS_DDLMT_VHT_SMPDU_EN = MTK_BIT(18);
+
+static constexpr uint32_t MT_WF_AGG(uint8_t band, uint32_t ofs) {
+    return (band ? 0x820f2000U : 0x820e2000U) + ofs;
+}
+static constexpr uint32_t MT_AGG_ACR0(uint8_t b) { return MT_WF_AGG(b, 0x084); }
+static constexpr uint32_t MT_AGG_ACR_CFEND_RATE = genmask32(13, 0);
+static constexpr uint32_t MT792x_CFEND_RATE_DEFAULT = 0x49; // OFDM 24 Mbps
+static constexpr uint32_t MT792x_CFEND_RATE_11B = 0x03;     // 11b LP 11 Mbps
 
 static constexpr uint32_t MT_WF_RMAC(uint8_t band, uint32_t ofs) {
     return (band ? 0x820f5000U : 0x820e5000U) + ofs;

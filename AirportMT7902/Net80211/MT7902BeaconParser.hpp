@@ -19,6 +19,7 @@ struct ScannedBss {
     uint8_t ssid[32] = {};
     uint8_t ssidLen = 0;
     uint8_t channel = 1;
+    uint8_t centerChannel = 0;
     WifiBand band = kBand2GHz;
     uint8_t bw = CMD_CBW_20MHZ;
     int32_t rssi = -70;
@@ -37,6 +38,7 @@ struct ScannedBss {
     bool hasHt = false;
     bool hasVht = false;
     bool hasHe = false;
+    uint8_t bssColor = 0;
     bool hasQos = false;
     char countryCode[3] = {};
 

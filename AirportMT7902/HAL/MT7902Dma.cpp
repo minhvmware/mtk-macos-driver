@@ -143,8 +143,9 @@ void MT7902Dma::resetRingRegs(DmaRing &r) {
         d[i].buf0 = 0;
         d[i].buf1 = 0;
         d[i].info = 0;
-        // Mark TX descriptors initially DMA_DONE so CPU owns them; RX descriptors owned by CPU until refill
-        d[i].ctrl = r.isRx ? 0 : MT_DMA_CTL_DMA_DONE;
+        // Match Linux mt76_dma_queue_reset(): mark all descriptors DMA_DONE initially;
+        // rxRefill() clears DMA_DONE on slots 0..ndesc-2 while keeping guard slot ndesc-1 owned by CPU.
+        d[i].ctrl = MT_DMA_CTL_DMA_DONE;
         r.entries[i].inUse = false;
         r.entries[i].cookie = nullptr;
     }
@@ -154,9 +155,10 @@ void MT7902Dma::resetRingRegs(DmaRing &r) {
     r.tail = 0;
     r.queued = 0;
 
-    mBus.wr(r.regBase + MT_RING_REG_DESC_BASE, static_cast<uint32_t>(r.descBuf.phys & 0xffffffffU));
-    mBus.wr(r.regBase + MT_RING_REG_RING_SIZE, r.ndesc);
     mBus.wr(r.regBase + MT_RING_REG_CPU_IDX, 0);
+    mBus.wr(r.regBase + MT_RING_REG_DMA_IDX, 0);
+    mBus.wr(r.regBase + MT_RING_REG_RING_SIZE, r.ndesc);
+    mBus.wr(r.regBase + MT_RING_REG_DESC_BASE, static_cast<uint32_t>(r.descBuf.phys & 0xffffffffU));
 }
 
 void MT7902Dma::freeRing(DmaQueueId qid) {
@@ -442,6 +444,9 @@ IrqStatus MT7902Dma::handleInterrupt() {
         if (sw & MT_MCU_CMD_WAKE_RX_PCIE) {
             st.mcuWakeRx = true;
             intr |= MT_INT_RX_DONE_DATA;
+        }
+        if (sw & MT_MCU_CMD_STOP_DMA) {
+            st.mcuStopDma = true;
         }
     }
 

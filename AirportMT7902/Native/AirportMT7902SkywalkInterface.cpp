@@ -161,7 +161,7 @@ void AirportMT7902SkywalkInterface::notifyScanDone() {
             mSta->scanCache().resetCursor();
             uint8_t scanBuf[sizeof(mt7902::wcl::BeaconMetadata) + 0x800] = {};
             while (const auto *bss = mSta->scanCache().nextResult()) {
-                if (nowMs >= bss->lastSeenMs && nowMs - bss->lastSeenMs <= 30000) {
+                if (nowMs >= bss->lastSeenMs && nowMs - bss->lastSeenMs <= 60000) {
                     size_t totalLen = 0;
                     memset(scanBuf, 0, sizeof(scanBuf));
                     populateWclBeaconBuffer(*bss, scanBuf, totalLen);
@@ -370,13 +370,25 @@ IOReturn AirportMT7902SkywalkInterface::getAUTH_TYPE(apple80211_authtype_data *a
 IOReturn AirportMT7902SkywalkInterface::getCHANNEL(apple80211_channel_data *cd) {
     if (!mSta || mSta->link().state < mt7902::kStaAssociated)
         return 6;
+    const auto &lk = mSta->link();
     memset(cd, 0, sizeof(*cd));
     cd->version = APPLE80211_VERSION;
     cd->channel.version = APPLE80211_VERSION;
-    cd->channel.channel = mSta->link().channel;
-    cd->channel.flags =
-        (mSta->link().band == mt7902::kBand5GHz ? mt7902::kAppleChanFlag5Ghz : mt7902::kAppleChanFlag2Ghz) |
-        mt7902::kAppleChanFlag20Mhz | mt7902::kAppleChanFlagActive;
+    cd->channel.channel = lk.channel;
+    if (const auto *entry = mt7902::findChannel(lk.channel, lk.band)) {
+        cd->channel.flags = mt7902::channelToAppleFlags(*entry, lk.bw);
+    } else {
+        uint32_t bwFlag = mt7902::kAppleChanFlag20Mhz;
+        if (lk.bw == mt7902::CMD_CBW_80MHZ)
+            bwFlag = mt7902::kAppleChanFlag80Mhz;
+        else if (lk.bw == mt7902::CMD_CBW_40MHZ)
+            bwFlag = mt7902::kAppleChanFlag40Mhz;
+        cd->channel.flags =
+            (lk.band == mt7902::kBand5GHz ? mt7902::kAppleChanFlag5Ghz : mt7902::kAppleChanFlag2Ghz) |
+            bwFlag | mt7902::kAppleChanFlagActive;
+    }
+    if (lk.bw == mt7902::CMD_CBW_40MHZ && lk.centerChannel > lk.channel)
+        cd->channel.flags |= mt7902::kAppleChanFlagExtAbv;
     return kIOReturnSuccess;
 }
 
@@ -520,8 +532,10 @@ IOReturn AirportMT7902SkywalkInterface::getSUPPORTED_CHANNELS(apple80211_sup_cha
     for (size_t i = 0; i < n; ++i) {
         ch->supported_channels[i].version = APPLE80211_VERSION;
         ch->supported_channels[i].channel = list[i].channel;
+        // Every channel must carry 20 MHz base flag so macOS WCL scans all 2.4 & 5 GHz channels
+        // (40/80 MHz capability is advertised separately in getCHANNELS_INFO NativeChannelInfo).
         ch->supported_channels[i].flags = mt7902::channelToAppleFlags(
-            list[i], list[i].allow80 ? mt7902::CMD_CBW_80MHZ : mt7902::CMD_CBW_20MHZ);
+            list[i], mt7902::CMD_CBW_20MHZ);
     }
     return kIOReturnSuccess;
 }
@@ -597,11 +611,12 @@ IOReturn AirportMT7902SkywalkInterface::getVHT_MCS_INDEX_SET(apple80211_vht_mcs_
 
 IOReturn AirportMT7902SkywalkInterface::getMCS_VHT(apple80211_mcs_vht_data *mv) {
     if (!mSta) return kIOReturnNotReady;
+    const auto &lk = mSta->link();
     memset(mv, 0, sizeof(*mv));
     mv->version = APPLE80211_VERSION;
-    mv->index = mSta->link().mcs;
-    mv->nss = mSta->link().nss;
-    mv->bw = 80;
+    mv->index = lk.mcs;
+    mv->nss = lk.nss;
+    mv->bw = (lk.bw == mt7902::CMD_CBW_80MHZ) ? 80 : (lk.bw == mt7902::CMD_CBW_40MHZ ? 40 : 20);
     return kIOReturnSuccess;
 }
 
@@ -838,8 +853,10 @@ IOReturn AirportMT7902SkywalkInterface::setWCL_SCAN_REQ(apple80211ScanRequest *r
         return kIOReturnBusy;
 
     mt7902::wcl::DecodedScanRequest decoded = {};
-    if (!mt7902::wcl::decodeScan(rawReq, 0x1550, decoded))
+    if (!mt7902::wcl::decodeScan(rawReq, 0x1550, decoded)) {
+        MTK_LOG("WCL scan decode failed");
         return kIOReturnBadArgument;
+    }
 
     mt7902::ScanRequestParams params = {};
     params.active = (decoded.type != 2);
@@ -860,12 +877,21 @@ IOReturn AirportMT7902SkywalkInterface::setWCL_SCAN_REQ(apple80211ScanRequest *r
                 dst.band = static_cast<uint8_t>(sup[i].band) + 1U;
             }
         }
-        if (params.channelCount == 0)
+        if (params.channelCount == 0) {
+            const uint8_t *rawBytes = reinterpret_cast<const uint8_t *>(rawReq);
+            uint32_t firstCh = decoded.channelCount ? mt7902::wcl::rd32(rawBytes + 0x5c) : 0;
+            uint32_t firstFlags = decoded.channelCount ? mt7902::wcl::rd32(rawBytes + 0x60) : 0;
+            MTK_LOG("WCL scan filtered to 0 ch (rawCnt=%u type=%u firstCh=%u firstFlags=0x%x)",
+                    decoded.channelCount, decoded.type, firstCh, firstFlags);
             return kIOReturnUnsupported;
+        }
     }
 
-    MTK_LOG("WCL scan request: id=%u type=%u ssidLen=%u chCnt=%u",
-            decoded.identifier, decoded.type, decoded.ssidLength, params.channelCount);
+    uint8_t firstCh = params.channelCount ? params.channels[0].channel_num : 0;
+    uint8_t lastCh = params.channelCount ? params.channels[params.channelCount - 1].channel_num : 0;
+    MTK_LOG("WCL scan request: id=%u type=%u ssidLen=%u chCnt=%u (%u..%u, rawCnt=%u)",
+            decoded.identifier, decoded.type, decoded.ssidLength, params.channelCount,
+            firstCh, lastCh, decoded.channelCount);
     mWclScanPending = true;
     if (mSta->startScan(params) != mt7902::kOk) {
         mWclScanPending = false;

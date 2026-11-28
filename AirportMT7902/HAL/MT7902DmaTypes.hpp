@@ -213,6 +213,7 @@ static constexpr uint32_t MT_PRXV_TX_RATE = genmask32(6, 0);
 static constexpr uint32_t MT_PRXV_NSTS = genmask32(9, 7);
 static constexpr uint32_t MT_PRXV_FRAME_MODE = genmask32(14, 12);
 static constexpr uint32_t MT_PRXV_HT_SGI = genmask32(16, 15);
+static constexpr uint32_t MT_PRXV_HT_STBC = genmask32(23, 22);
 static constexpr uint32_t MT_PRXV_TX_MODE = genmask32(27, 24);
 static constexpr uint32_t MT_PRXV_RCPI0 = genmask32(7, 0);
 static constexpr uint32_t MT_PRXV_RCPI1 = genmask32(15, 8);

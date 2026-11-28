@@ -190,19 +190,6 @@ bool AirportMT7902::start(IOService *provider) {
         return false;
     }
 
-    mDevice = new mt7902::MT7902Device(*mBus);
-    if (!mDevice || mDevice->probeAndInit() != mt7902::kOk) {
-        releaseResources();
-        return false;
-    }
-
-    mSta = new mt7902::MT7902Sta(*mDevice);
-    if (!mSta) {
-        releaseResources();
-        return false;
-    }
-    mSta->setListener(this);
-
     mCommandGate = IOCommandGate::commandGate(this);
     if (!mCommandGate || gMT7902WorkQueue->addEventSource(mCommandGate) != kIOReturnSuccess) {
         releaseResources();
@@ -211,6 +198,8 @@ bool AirportMT7902::start(IOService *provider) {
     mCommandGate->enable();
     gMT7902CommandGate = mCommandGate;
 
+    // Allocate & enable PCIe MSI interrupt BEFORE probeAndInit() (matching Linux mt7921_pci_probe)
+    // so PCIe config has MSI=Enable+ and DisINTx+ before WFSYS reset and WFDMA0 init.
     int msiIndex = 0;
     for (int idx = 0; ; ++idx) {
         int intrType = 0;
@@ -229,6 +218,19 @@ bool AirportMT7902::start(IOService *provider) {
         return false;
     }
     mInterruptSrc->enable();
+
+    mDevice = new mt7902::MT7902Device(*mBus);
+    if (!mDevice || mDevice->probeAndInit() != mt7902::kOk) {
+        releaseResources();
+        return false;
+    }
+
+    mSta = new mt7902::MT7902Sta(*mDevice);
+    if (!mSta) {
+        releaseResources();
+        return false;
+    }
+    mSta->setListener(this);
 
     mWatchdogTimer = IOTimerEventSource::timerEventSource(this, &AirportMT7902::watchdogFired);
     if (mWatchdogTimer && gMT7902WorkQueue->addEventSource(mWatchdogTimer) == kIOReturnSuccess)
@@ -356,6 +358,7 @@ void AirportMT7902::releaseResources() {
     }
     if (mSta) {
         mSta->setListener(nullptr);
+        (void)mSta->disassociate(8);
         delete mSta;
         mSta = nullptr;
     }
@@ -462,14 +465,13 @@ UInt32 AirportMT7902::sendLinearPacket(mbuf_t m) {
         freePacket(m);
         return kIOReturnOutputDropped;
     }
-    uint8_t linear[2048];
-    if (mbuf_copydata(m, 0, pktLen, linear) != 0) {
+    if (mbuf_copydata(m, 0, pktLen, mTxLinear) != 0) {
         freePacket(m);
         return kIOReturnOutputDropped;
     }
     freePacket(m);
 
-    if (mSta->outputEthernetPacket(linear, pktLen) != mt7902::kOk) {
+    if (mSta->outputEthernetPacket(mTxLinear, pktLen) != mt7902::kOk) {
         if (mNetStats) mNetStats->outputErrors++;
         return kIOReturnOutputDropped;
     }
@@ -503,14 +505,16 @@ IOReturn AirportMT7902::outputStart(IONetworkInterface *interface, IOOptionBits 
     (void)options;
     if (!interface)
         return kIOReturnBadArgument;
-    mbuf_t m = nullptr;
-    if (interface->dequeueOutputPackets(32, &m) != kIOReturnSuccess || !m)
-        return kIOReturnSuccess;
-    while (m) {
-        mbuf_t next = mbuf_nextpkt(m);
-        mbuf_setnextpkt(m, nullptr);
-        sendLinearPacket(m);
-        m = next;
+    for (int batch = 0; batch < 8; ++batch) {
+        mbuf_t m = nullptr;
+        if (interface->dequeueOutputPackets(32, &m) != kIOReturnSuccess || !m)
+            break;
+        while (m) {
+            mbuf_t next = mbuf_nextpkt(m);
+            mbuf_setnextpkt(m, nullptr);
+            sendLinearPacket(m);
+            m = next;
+        }
     }
     return kIOReturnSuccess;
 }
@@ -537,7 +541,10 @@ IOReturn AirportMT7902::setHardwareAddress(const void *addrP, UInt32 addrBytes) 
     if (action == mt7902::wcl::MacUpdate::Apply) {
         MTK_LOG("Updating MT7902 MAC address to %02x:%02x:%02x:%02x:%02x:%02x",
                 addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
-        (void)mDevice->setMacAddress(addr);
+        if (mSta)
+            (void)mSta->setMacAddress(addr);
+        else
+            (void)mDevice->setMacAddress(addr);
     }
     return kIOReturnSuccess;
 }
@@ -671,8 +678,12 @@ IOReturn AirportMT7902::registerWithPolicyMaker(IOService *policyMaker) {
 IOReturn AirportMT7902::setPowerState(unsigned long powerStateOrdinal, IOService *policyMaker) {
     (void)policyMaker;
     if (mDevice) {
-        if (powerStateOrdinal == 0) (void)mDevice->suspend();
-        else (void)mDevice->resume();
+        if (powerStateOrdinal == 0) {
+            if (mSta) (void)mSta->disassociate(8);
+            (void)mDevice->suspend();
+        } else {
+            (void)mDevice->resume();
+        }
     }
     return IOPMAckImplied;
 }

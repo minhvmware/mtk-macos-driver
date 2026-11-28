@@ -558,8 +558,11 @@ size_t MT7902Wpa2::buildStaRsnIeFromAp(const uint8_t *apIes, size_t apIeLen,
                         akmSuite[3] = 6;
                     if (p + 2 <= elen) {
                         uint16_t apCaps = getLe16(b + p);
-                        if (apCaps & 0x0080U)
-                            rsnCaps = 0x0080U; // Advertise MFPC if AP advertises MFPC
+                        // Only advertise MFPC when AP REQUIRES PMF (MFPR = BIT(6)); on WPA2/WPA3
+                        // transition APs (MFPC=1, MFPR=0), WPA2-PSK runs without PMF so deauth/mgmt
+                        // frames are accepted cleanly without IGTK/SA-Query overhead.
+                        if (apCaps & 0x0040U)
+                            rsnCaps = 0x0080U;
                     }
                 }
             }
@@ -685,12 +688,17 @@ Wpa2StepResult Wpa2Session::processRxEapol(const uint8_t *rxEth, size_t rxEthLen
 
     // Case 1: 4-Way Handshake Message 1/4 (Pairwise=1, Ack=1, MIC=0)
     if (isPairwise && !hasMic) {
-        memcpy(anonce, eapol + 17, 32);
-        // Advance SNonce slightly on Msg 1 retries
-        wrBe32(snonce + 28, rdBe32(snonce + 28) + (nonceCounter++));
-
-        MT7902Wpa2::derivePtk(pmk, bssid, staMac, anonce, snonce, keyVer, ptk);
-        ptkValid = true;
+        // Per IEEE 802.11-2020 §12.7.6.2, reuse the same SNonce & PTK on retransmitted Msg 1/4
+        // carrying the identical ANonce so Msg 3/4 MIC never mismatches the AP's derived PTK.
+        bool sameAnonce = ptkValid && (memcmp(anonce, eapol + 17, 32) == 0);
+        if (!sameAnonce) {
+            memcpy(anonce, eapol + 17, 32);
+            if (ptkValid) {
+                wrBe32(snonce + 28, rdBe32(snonce + 28) + (nonceCounter++));
+            }
+            MT7902Wpa2::derivePtk(pmk, bssid, staMac, anonce, snonce, keyVer, ptk);
+            ptkValid = true;
+        }
 
         size_t msg2BodyLen = 95 + staRsnIeLen;
         size_t msg2EapolLen = 4 + msg2BodyLen;

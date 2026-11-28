@@ -256,10 +256,12 @@ int MT7902Firmware::loadEmbeddedAndBoot(char outFwVer[32]) {
         return kErrNotFound;
     }
 
-    // Put firmware into normal boot state
     mBus.wr(MT_SWDEF_MODE, MT_SWDEF_NORMAL_MODE);
+    // Always issue MCU_CMD_NIC_POWER_CTRL(1) before patch download (matching Linux
+    // mt792x_load_firmware): even if MT_CONN_ON_MISC already reads FW_PWR_ON,
+    // skipping restart leaves MT7902 CONNSYS power state uninitialized and causes
+    // N9 firmware to assert MT_MCU_CMD_STOP_DMA shortly after N9_RDY.
     (void)mMcu.restartFirmware();
-
     if (!mBus.pollMs(MT_CONN_ON_MISC, MT_TOP_MISC_FW_STATE, MT_TOP_MISC2_FW_PWR_ON, 1000, 1)) {
         MTK_LOG("Warning: MT_CONN_ON_MISC not in FW_PWR_ON before patch download (val=0x%08x)",
                 mBus.rr(MT_CONN_ON_MISC));

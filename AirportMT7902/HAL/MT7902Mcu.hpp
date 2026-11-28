@@ -55,8 +55,11 @@ struct StaUpdateParams {
     uint8_t state = CONN_STATE_PORT_SECURE;
     uint8_t staState = MT76_STA_INFO_STATE_NONE;
     uint8_t band = 0; // 0: 2.4GHz, 1: 5GHz, 2: 6GHz
+    uint8_t bw = CMD_CBW_20MHZ;
     bool qos = true;
     bool ht = true;
+    bool vht = false;
+    bool he = false;
     bool enable = true;
     bool newly = true;
     bool broadcast = false;
@@ -88,6 +91,7 @@ public:
 class MT7902Mcu {
 public:
     MT7902Mcu(IMT7902Bus &bus, MT7902Dma &dma);
+    ~MT7902Mcu();
 
     void setObserver(IMcuEventObserver *obs) { mObserver = obs; }
 
@@ -127,6 +131,7 @@ public:
     int setHifSuspend(bool suspend);
     int setRtsThreshold(uint32_t val, uint8_t band);
     int setEdcaParams(uint8_t bssIdx, bool qos);
+    int setFwLog2Host(uint8_t ctrl);
 
     // Device / BSS / STA / Security / ROC / Scan
     int uniAddDev(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
@@ -134,8 +139,12 @@ public:
     int uniSetChctx(uint8_t bssIdx, const ChannelConfig &ch, uint8_t antennaMask);
     int uniAddBss(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
                   const uint8_t bssid[6], const ChannelConfig &ch,
-                  uint16_t bcnInterval, uint8_t dtimPeriod, bool qos, bool enable);
+                  uint16_t bcnInterval, uint8_t dtimPeriod, bool qos, bool enable,
+                  bool he = false, uint8_t bssColor = 0);
     int uniUpdateSta(const StaUpdateParams &p);
+    int uniSetBa(uint8_t bssIdx, uint16_t wcid, const uint8_t peerMac[6],
+                 uint8_t tid, uint16_t ssn, uint16_t winSize,
+                 bool amsdu, bool enable, bool tx);
     int uniSetKey(const KeyInstallParams &p);
     int acquireRoc(uint8_t bssIdx, const ChannelConfig &ch, uint32_t durationMs, bool joinReq);
     int abortRoc(uint8_t bssIdx);
@@ -143,6 +152,7 @@ public:
                         uint8_t dtimPeriod, bool enable);
     int startHwScan(const ScanRequestParams &params);
     int cancelHwScan(uint8_t seqNum);
+    uint8_t lastScanSeq() const { return mScanSeq; }
 
     // Static parser helpers
     static int parseNicCapabilityPayload(const uint8_t *payload, size_t len, NicCapability &cap);
@@ -151,7 +161,15 @@ public:
                                    size_t &payloadOffset);
 
 private:
+    static constexpr size_t kMaxDeferredRx = 32;
+    struct DeferredRxSlot {
+        uint16_t len = 0;
+        uint8_t data[MT7902_RX_BUF_SIZE] = {};
+    };
+
     uint8_t nextSeq();
+    void enqueueDeferredRx(const uint8_t *pkt, size_t len);
+    void flushDeferredRx();
 
     IMT7902Bus &mBus;
     MT7902Dma &mDma;
@@ -163,12 +181,23 @@ private:
     bool mRocActive = false;
 
     // Synchronous response slot (single in-flight MCU command at a time)
+    bool mInSendMessage = false;
     bool mWaitingResp = false;
     uint8_t mWaitSeq = 0;
     uint32_t mWaitCmd = 0;
     bool mRespReceived = false;
     uint8_t mRespStorage[2048] = {};
     size_t mRespSize = 0;
+
+    // Heap-backed scratch & deferred RX ring (keeps 16 KB XNU kernel stack clean and prevents MCU re-entrancy)
+    uint8_t *mTxScratch = nullptr;
+    uint8_t *mRxScratch = nullptr;
+    uint8_t *mDefDispatchScratch = nullptr;
+    DeferredRxSlot *mDeferredRx = nullptr;
+    size_t mDefHead = 0;
+    size_t mDefTail = 0;
+    size_t mDefCount = 0;
+    bool mFlushingDeferred = false;
 };
 
 } // namespace mt7902

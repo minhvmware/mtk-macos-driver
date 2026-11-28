@@ -103,27 +103,13 @@ bool AirportMT7902::start(IOService *provider) {
         return false;
     }
 
-    mDevice = new mt7902::MT7902Device(*mBus);
-    if (!mDevice || mDevice->probeAndInit() != mt7902::kOk) {
-        MTK_ERR("MT7902 hardware initialization / firmware boot failed");
-        releaseResources();
-        return false;
-    }
-
-    mSta = new mt7902::MT7902Sta(*mDevice);
-    if (!mSta) {
-        releaseResources();
-        return false;
-    }
-    mSta->setListener(this);
-
     mCommandGate = IOCommandGate::commandGate(this);
     if (!mCommandGate || mWorkLoop->addEventSource(mCommandGate) != kIOReturnSuccess) {
         releaseResources();
         return false;
     }
 
-    // Prefer MSI interrupt vector if available, else legacy INTx
+    // Prefer MSI interrupt vector BEFORE probeAndInit() (matching Linux mt7921_pci_probe)
     int msiIndex = 0;
     for (int idx = 0; ; ++idx) {
         int intrType = 0;
@@ -142,6 +128,20 @@ bool AirportMT7902::start(IOService *provider) {
         return false;
     }
     mInterruptSrc->enable();
+
+    mDevice = new mt7902::MT7902Device(*mBus);
+    if (!mDevice || mDevice->probeAndInit() != mt7902::kOk) {
+        MTK_ERR("MT7902 hardware initialization / firmware boot failed");
+        releaseResources();
+        return false;
+    }
+
+    mSta = new mt7902::MT7902Sta(*mDevice);
+    if (!mSta) {
+        releaseResources();
+        return false;
+    }
+    mSta->setListener(this);
 
     mWatchdogTimer = IOTimerEventSource::timerEventSource(this, &AirportMT7902::watchdogFired);
     if (mWatchdogTimer && mWorkLoop->addEventSource(mWatchdogTimer) == kIOReturnSuccess)
@@ -192,6 +192,7 @@ void AirportMT7902::releaseResources() {
     }
     if (mSta) {
         mSta->setListener(nullptr);
+        (void)mSta->disassociate(8);
         delete mSta;
         mSta = nullptr;
     }
@@ -526,7 +527,7 @@ IOReturn AirportMT7902::handleGetSupportedChannels(apple80211_sup_channel_data *
         ch->supported_channels[i].version = APPLE80211_VERSION;
         ch->supported_channels[i].channel = list[i].channel;
         ch->supported_channels[i].flags = mt7902::channelToAppleFlags(
-            list[i], list[i].allow80 ? mt7902::CMD_CBW_80MHZ : mt7902::CMD_CBW_20MHZ);
+            list[i], mt7902::CMD_CBW_20MHZ);
     }
     return kIOReturnSuccess;
 }

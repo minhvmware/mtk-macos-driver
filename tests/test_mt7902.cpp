@@ -212,6 +212,18 @@ public:
     std::vector<std::vector<uint8_t>> capturedBand0TxPayloads;
     std::vector<Mt7902Txwi> capturedBand0Txwis;
     uint8_t lastHwScanSeq = 0;
+    uint16_t lastHwScanDwell = 0;
+    uint16_t lastHwScanTimeout = 0;
+    uint8_t lastCancelScanSeq = 0;
+    uint8_t lastChanSwitchReason = 0;
+    uint8_t lastChanSwitchPrimary = 0;
+    uint8_t lastChanSwitchCenter = 0;
+    uint8_t lastChanSwitchBw = 0;
+    uint32_t chanSwitchCount = 0;
+    bool sawStaRecHe = false;
+    bool sawStaRecHeV2 = false;
+    bool sawStaRecVht = false;
+    bool sawStaRecBa = false;
 
 private:
     uint32_t readBarDirect(uint32_t off) const {
@@ -328,7 +340,7 @@ private:
                 return;
             }
 
-            if (cid == 0x03) { // Verify STA_REC_UPDATE carries valid STA_REC_WTBL or STA_REC_KEY_V2 (0x11)
+            if (cid == 0x03) { // Verify STA_REC_UPDATE carries valid STA_REC_WTBL, STA_REC_KEY_V2, or STA_REC_BA
                 const uint8_t *sp = buf + sizeof(Mt76Connac2McuUniTxd);
                 size_t slen = len - sizeof(Mt76Connac2McuUniTxd);
                 TEST_CHECK(slen >= sizeof(StaReqHdr) + 4, "STA_REC_UPDATE payload too short");
@@ -336,16 +348,20 @@ private:
                 uint16_t ntlvs = getLe16(&sh->tlv_num);
                 TEST_CHECK(ntlvs >= 1, "STA_REC_UPDATE must have >=1 TLV");
                 size_t off = sizeof(StaReqHdr);
-                bool sawWtblOrKey = false;
+                bool sawValidCoreTlv = false;
                 for (uint16_t t = 0; t < ntlvs && off + 4 <= slen; ++t) {
                     uint16_t ttag = getLe16(sp + off);
                     uint16_t tlen = getLe16(sp + off + 2);
                     TEST_CHECK(tlen >= 4 && off + tlen <= slen, "Malformed STA_REC TLV %u (len=%u)", ttag, tlen);
-                    if (ttag == STA_REC_WTBL || ttag == STA_REC_KEY_V2)
-                        sawWtblOrKey = true;
+                    if (ttag == STA_REC_WTBL || ttag == STA_REC_KEY_V2 || ttag == STA_REC_BA)
+                        sawValidCoreTlv = true;
+                    if (ttag == STA_REC_HE) sawStaRecHe = true;
+                    if (ttag == STA_REC_HE_V2) sawStaRecHeV2 = true;
+                    if (ttag == STA_REC_VHT) sawStaRecVht = true;
+                    if (ttag == STA_REC_BA) sawStaRecBa = true;
                     off += tlen;
                 }
-                TEST_CHECK(sawWtblOrKey, "STA_REC_UPDATE missing STA_REC_WTBL (0x0d) or STA_REC_KEY_V2 (0x11)");
+                TEST_CHECK(sawValidCoreTlv, "STA_REC_UPDATE missing STA_REC_WTBL/KEY_V2/BA");
             }
 
             Mt76ConnacMcuUniEvent ev = {};
@@ -409,16 +425,36 @@ private:
             return;
         }
         if (cid == 0x03 && stdTxd->set_query == MCU_Q_SET) { // MCU_CE_CMD_START_HW_SCAN (fire-and-forget)
-            if (payloadLen >= 1)
+            if (payloadLen >= sizeof(Mt7902HwScanReq)) {
+                const auto *hs = reinterpret_cast<const Mt7902HwScanReq *>(payload);
+                lastHwScanSeq = hs->seq_num;
+                lastHwScanDwell = getLe16(&hs->channel_dwell_time);
+                lastHwScanTimeout = getLe16(&hs->timeout_value);
+            } else if (payloadLen >= 1) {
                 lastHwScanSeq = payload[0];
+            }
             return;
         }
         if (cid == 0x05 && stdTxd->set_query == MCU_Q_SET) { // MCU_CE_CMD_SET_PS_PROFILE (fire-and-forget)
             return;
         }
-        if (cid == 0x0f || cid == 0x16 || cid == 0x17 || cid == 0x1b || cid == 0x1d) {
-            // Fire-and-forget CE commands (SET_CHAN_DOMAIN, SET_BSS_CONNECTED, SET_BSS_ABORT, CANCEL_HW_SCAN, SET_EDCA_PARMS)
+        if (cid == 0x1b && stdTxd->set_query == MCU_Q_SET) { // MCU_CE_CMD_CANCEL_HW_SCAN
+            if (payloadLen >= 1)
+                lastCancelScanSeq = payload[0];
             return;
+        }
+        if (cid == 0x0f || cid == 0x16 || cid == 0x17 || cid == 0x1d) {
+            // Fire-and-forget CE commands (SET_CHAN_DOMAIN, SET_BSS_CONNECTED, SET_BSS_ABORT, SET_EDCA_PARMS)
+            return;
+        }
+
+        if (cid == 0xed && extCid == 0x08 && payloadLen >= sizeof(Mt7902ChanSwitchReq)) {
+            const auto *cs = reinterpret_cast<const Mt7902ChanSwitchReq *>(payload);
+            lastChanSwitchPrimary = cs->control_ch;
+            lastChanSwitchCenter = cs->center_ch;
+            lastChanSwitchBw = cs->bw;
+            lastChanSwitchReason = cs->switch_reason;
+            chanSwitchCount++;
         }
 
         // Default synchronous ACK (PATCH_START_REQ, TARGET_ADDRESS_LEN_REQ, EXT_CMDs, SET_RX_FILTER)
@@ -715,6 +751,20 @@ static void testTxwiTokensTxFreeAndRxdDecoding(MockMT7902AsicBus &bus, MT7902Dev
                "P-RXV PHY rate decode mismatch");
     TEST_CHECK(MT7902Mac::estimateRateMbps(parsed.phyMode, parsed.mcs, parsed.nss, parsed.bw) >= 400,
                "Expected 80MHz HE MCS11 >= 400 Mbps");
+
+    // Verify Connac2 OFDM hardware rate code 0x0b decodes to index 0 (6 Mbps)
+    putLe32(rxRaw + 24, fieldPrep(MT_PRXV_TX_MODE, MT_PHY_TYPE_OFDM) |
+                        fieldPrep(MT_PRXV_TX_RATE, 0x0b));
+    TEST_CHECK(MT7902Mac::parseRxDescriptor(rxRaw, sizeof(rxRaw), 0x1, parsed) &&
+                   parsed.rateValid && parsed.mcs == 0 &&
+                   MT7902Mac::estimateRateMbps(parsed.phyMode, parsed.mcs, parsed.nss, parsed.bw) == 6,
+               "Connac2 OFDM 0x0b must decode to 6 Mbps (index 0)");
+
+    // Verify Connac2 A-MSDU subframe P-RXV fill pattern (0x55555555) is rejected by rateValid
+    putLe32(rxRaw + 24, 0x55555555U);
+    TEST_CHECK(MT7902Mac::parseRxDescriptor(rxRaw, sizeof(rxRaw), 0x1, parsed) &&
+                   parsed.valid && !parsed.rateValid,
+               "P-RXV fill pattern 0x55555555 must mark rateValid=false");
 }
 
 static void inject80211FrameOnRx2(MockMT7902AsicBus &bus, const uint8_t *dot11, size_t dot11Len,
@@ -873,7 +923,223 @@ static void testStaScanWpa2AssocKeyInstallAndData(MockMT7902AsicBus &bus, MT7902
     TEST_CHECK((getLe32(&bus.capturedBand0Txwis.back().txd[3]) & MT_TXD3_PROTECT_FRAME) != 0,
                "Encrypted IPv4 TX must set MT_TXD3_PROTECT_FRAME");
 
+    // Verify Private Wi-Fi Address rotation cleanly tears down active STA/BSS before MAC update
+    const uint8_t rotatedMac[6] = { 0xee, 0xf0, 0xe1, 0x85, 0x44, 0xac };
+    TEST_CHECK(sta.setMacAddress(rotatedMac) == kOk && !listener.linkUp && sta.link().state == kStaInit,
+               "setMacAddress() must cleanly disassociate active link before updating MAC");
+    TEST_CHECK(memcmp(dev.capability().macAddr, rotatedMac, 6) == 0,
+               "setMacAddress() did not update device MAC");
+
+    // Verify Auth rejection (status=30 retries once after comeback, second reject resets cleanly)
+    bus.capturedBand0TxPayloads.clear();
+    TEST_CHECK(sta.associate(areq) == kOk && sta.link().state == kStaAuthenticating,
+               "Re-associate after MAC rotation failed");
+    uint8_t authReject[30] = {};
+    putLe16(authReject + 0, 0x00b0);
+    memcpy(authReject + 4, rotatedMac, 6);
+    memcpy(authReject + 10, apBssid, 6);
+    memcpy(authReject + 16, apBssid, 6);
+    putLe16(authReject + 24, 0);
+    putLe16(authReject + 26, 2);
+    putLe16(authReject + 28, 30); // STATUS_ASSOC_REJECTED_TEMPORARILY
+    inject80211FrameOnRx2(bus, authReject, sizeof(authReject), 36, -50);
+    dev.serviceInterrupt();
+    TEST_CHECK(sta.link().state == kStaAuthenticating && bus.capturedBand0TxPayloads.size() == 2,
+               "First status=30 should perform one Auth comeback retry");
+    inject80211FrameOnRx2(bus, authReject, sizeof(authReject), 36, -50);
+    dev.serviceInterrupt();
+    TEST_CHECK(sta.link().state == kStaInit && sta.link().lastAssocStatus == 30,
+               "Second Auth reject (status=30) did not reset STA to kStaInit");
+    TEST_CHECK(sta.associate(areq) == kOk && sta.link().state == kStaAuthenticating,
+               "Retry associate after Auth reject failed");
     TEST_CHECK(sta.disassociate(8) == kOk && !listener.linkUp, "disassociate() failed");
+    dev.mac().releaseAllTokens();
+}
+
+static void test5Ghz80MhzBaPostScanAndReentrancy(MockMT7902AsicBus &bus, MT7902Device &dev) {
+    printf("[10/10] Testing 5 GHz DFS 80 MHz, HE/VHT TLVs, ADDBA, post-scan restore & duplicate Deauth...\n");
+
+    // 1. Verify Apple80211 channel flags match include/Airport/apple80211_var.h
+    TEST_CHECK(kAppleChanFlagActive == 0x0080U && kAppleChanFlag80Mhz == 0x0400U &&
+                   kAppleChanFlag160Mhz == 0x0800U,
+               "Apple80211 channel flag constants mismatch");
+    const ChannelInfoEntry *ch116 = findChannel(116, kBand5GHz);
+    TEST_CHECK(ch116 != nullptr && ch116->dfs && ch116->allow80, "Channel 116 lookup failed");
+    uint32_t f116 = channelToAppleFlags(*ch116, CMD_CBW_80MHZ);
+    TEST_CHECK((f116 & kAppleChanFlag5Ghz) && (f116 & kAppleChanFlag80Mhz) &&
+                   (f116 & kAppleChanFlagDfs) && !(f116 & kAppleChanFlag160Mhz),
+               "Channel 116 80MHz Apple flags mismatch (0x%x)", f116);
+
+    // 2. Parse 5 GHz DFS ch 116 80 MHz (center=122) VHT+HE beacon
+    MT7902Sta sta(dev);
+    MockStaListener listener;
+    sta.setListener(&listener);
+    TEST_CHECK(sta.setPower(true) == kOk, "sta.setPower failed");
+
+    const uint8_t apBssid[6] = { 0x7c, 0x7b, 0x68, 0x01, 0x74, 0x51 };
+    const char *ssidStr = "TestDFS5G";
+    std::vector<uint8_t> beacon(36, 0);
+    putLe16(beacon.data() + 0, 0x0080);
+    memset(beacon.data() + 4, 0xff, 6);
+    memcpy(beacon.data() + 10, apBssid, 6);
+    memcpy(beacon.data() + 16, apBssid, 6);
+    putLe16(beacon.data() + 32, 100);
+    putLe16(beacon.data() + 34, 0x0401);
+    beacon.push_back(0); beacon.push_back(static_cast<uint8_t>(strlen(ssidStr)));
+    beacon.insert(beacon.end(), ssidStr, ssidStr + strlen(ssidStr));
+    // HT Operation (ID=61): primary=116, SCA + 40MHz allowed (0x05)
+    beacon.push_back(61); beacon.push_back(22);
+    beacon.push_back(116); beacon.push_back(0x05);
+    beacon.insert(beacon.end(), 20, 0);
+    // VHT Capabilities (ID=191)
+    beacon.push_back(191); beacon.push_back(12);
+    beacon.insert(beacon.end(), 12, 0);
+    // VHT Operation (ID=192): width=1 (80MHz), seg0=122, seg1=0
+    beacon.push_back(192); beacon.push_back(5);
+    beacon.push_back(1); beacon.push_back(122); beacon.push_back(0); beacon.push_back(0); beacon.push_back(0);
+    // HE Capabilities (ID=255, Ext=35) + HE Operation (ID=255, Ext=36, BSS Color=7)
+    beacon.push_back(255); beacon.push_back(4); beacon.push_back(35);
+    beacon.push_back(0x05); beacon.push_back(0); beacon.push_back(0);
+    beacon.push_back(255); beacon.push_back(7); beacon.push_back(36);
+    beacon.push_back(0xf4); beacon.push_back(0x3f); beacon.push_back(0x00);
+    beacon.push_back(7); beacon.push_back(0); beacon.push_back(0);
+
+    inject80211FrameOnRx2(bus, beacon.data(), beacon.size(), 116, -45);
+    dev.serviceInterrupt();
+    const ScannedBss *found = sta.scanCache().findByBssid(apBssid);
+    TEST_CHECK(found && found->channel == 116 && found->centerChannel == 122 &&
+                   found->bw == CMD_CBW_80MHZ && found->hasVht && found->hasHe &&
+                   found->bssColor == 7,
+               "5 GHz 80 MHz VHT+HE+BSSColor beacon parse failed");
+
+    // 3. Associate to open 5 GHz DFS ch 116 -> verify CH_SWITCH_DFS + STA_REC_VHT/HE/HE_V2
+    bus.sawStaRecHe = bus.sawStaRecHeV2 = bus.sawStaRecVht = bus.sawStaRecBa = false;
+    AssocRequestParams areq;
+    areq.ssidLen = static_cast<uint8_t>(strlen(ssidStr));
+    memcpy(areq.ssid, ssidStr, areq.ssidLen);
+    memcpy(areq.bssid, apBssid, 6);
+    areq.hasBssid = true;
+    areq.authLower = 1;
+    areq.authUpper = 0; // Open -> enters kStaRun directly on Assoc Resp
+    TEST_CHECK(sta.associate(areq) == kOk, "5G DFS associate failed");
+    TEST_CHECK(bus.lastChanSwitchPrimary == 116 && bus.lastChanSwitchReason == CH_SWITCH_DFS,
+               "DFS ch 116 must use CH_SWITCH_DFS (got reason=%u)", bus.lastChanSwitchReason);
+
+    uint8_t authResp[30] = {};
+    putLe16(authResp + 0, 0x00b0);
+    memcpy(authResp + 4, dev.capability().macAddr, 6);
+    memcpy(authResp + 10, apBssid, 6);
+    memcpy(authResp + 16, apBssid, 6);
+    putLe16(authResp + 26, 2);
+    inject80211FrameOnRx2(bus, authResp, sizeof(authResp), 116, -45);
+    dev.serviceInterrupt();
+
+    uint8_t assocResp[32] = {};
+    putLe16(assocResp + 0, 0x0010);
+    memcpy(assocResp + 4, dev.capability().macAddr, 6);
+    memcpy(assocResp + 10, apBssid, 6);
+    memcpy(assocResp + 16, apBssid, 6);
+    putLe16(assocResp + 24, 0x0401);
+    putLe16(assocResp + 28, 0xc003);
+    inject80211FrameOnRx2(bus, assocResp, sizeof(assocResp), 116, -45);
+    dev.serviceInterrupt();
+
+    TEST_CHECK(sta.link().state == kStaRun && sta.link().bw == CMD_CBW_80MHZ &&
+                   sta.link().centerChannel == 122,
+               "5G 80 MHz link state mismatch");
+    TEST_CHECK(bus.lastChanSwitchCenter == 122 && bus.lastChanSwitchBw == CMD_CBW_80MHZ &&
+                   bus.lastChanSwitchReason == CH_SWITCH_DFS,
+               "Associated 5G DFS 80MHz channel switch mismatch");
+    TEST_CHECK(bus.sawStaRecVht && bus.sawStaRecHe && bus.sawStaRecHeV2,
+               "Associated 5G HE/VHT STA_REC TLVs missing");
+    // Verify 5 GHz MAC timing programmed SIFS = 16 us (not 2.4 GHz 10 us!)
+    uint32_t icr0 = bus.rr(MT_TMAC_ICR0(0));
+    TEST_CHECK(fieldGet(MT_IFS_SIFS, icr0) == 16U,
+               "5 GHz MT_TMAC_ICR0 SIFS must be 16 us (got %u)", fieldGet(MT_IFS_SIFS, icr0));
+
+    // 4. ADDBA Request -> ADDBA Response + STA_REC_BA
+    bus.capturedBand0TxPayloads.clear();
+    uint8_t addbaReq[33] = {};
+    putLe16(addbaReq + 0, 0x00d0); // Action
+    memcpy(addbaReq + 4, dev.capability().macAddr, 6);
+    memcpy(addbaReq + 10, apBssid, 6);
+    memcpy(addbaReq + 16, apBssid, 6);
+    addbaReq[24] = 3; // Block Ack
+    addbaReq[25] = 0; // ADDBA Request
+    addbaReq[26] = 7; // Dialog token
+    putLe16(addbaReq + 27, static_cast<uint16_t>((64U << 6) | (0U << 2) | (1U << 1) | 1U));
+    putLe16(addbaReq + 29, 0);
+    putLe16(addbaReq + 31, static_cast<uint16_t>(12U << 4));
+    inject80211FrameOnRx2(bus, addbaReq, sizeof(addbaReq), 116, -45);
+    dev.serviceInterrupt();
+    TEST_CHECK(bus.sawStaRecBa, "ADDBA Request must program STA_REC_BA");
+    TEST_CHECK(bus.capturedBand0TxPayloads.size() == 1 &&
+                   bus.capturedBand0TxPayloads[0].size() == 33 &&
+                   bus.capturedBand0TxPayloads[0][24] == 3 &&
+                   bus.capturedBand0TxPayloads[0][25] == 1 &&
+                   bus.capturedBand0TxPayloads[0][26] == 7,
+               "ADDBA Response not sent properly");
+
+    // 5. Connected scan completion restores operating 5 GHz 80 MHz channel, and DFS batches boost dwell+timeout
+    uint32_t preScanSwitches = bus.chanSwitchCount;
+    ScanRequestParams sreq;
+    sreq.active = true;
+    sreq.channelCount = 2;
+    sreq.channels[0] = { 1, 7 };
+    sreq.channels[1] = { 2, 116 };
+    TEST_CHECK(sta.startScan(sreq) == kOk && sta.isScanning(), "Connected DFS startScan failed");
+    TEST_CHECK(bus.lastHwScanDwell == 120U && bus.lastHwScanTimeout == 600U,
+               "Short DFS batch must set dwell=120, timeout=600 (got %u/%u)",
+               bus.lastHwScanDwell, bus.lastHwScanTimeout);
+    TEST_CHECK(sta.abortScan(true) == kOk && !sta.isScanning() &&
+                   bus.lastCancelScanSeq == (bus.lastHwScanSeq & 0x7fU),
+               "abortScan must pass active scanSeq to CANCEL_HW_SCAN");
+
+    ScanRequestParams active2g;
+    active2g.active = true;
+    active2g.channelCount = 2;
+    active2g.channels[0] = { 1, 1 };
+    active2g.channels[1] = { 1, 6 };
+    TEST_CHECK(sta.startScan(active2g) == kOk && sta.isScanning(), "Connected active 2G startScan failed");
+    TEST_CHECK(bus.lastHwScanDwell == 0U && bus.lastHwScanTimeout == 0U,
+               "Active non-DFS batch must use firmware default dwell=0, timeout=0");
+    uint8_t scanDoneEvt[sizeof(Mt76Connac2McuRxd) + 4] = {};
+    auto *srxd = reinterpret_cast<Mt76Connac2McuRxd *>(scanDoneEvt);
+    putLe32(&srxd->rxd[0], fieldPrep(MT_RXD0_LENGTH, sizeof(scanDoneEvt)) |
+                           fieldPrep(MT_RXD0_PKT_TYPE, PKT_TYPE_RX_EVENT));
+    srxd->eid = MCU_EVENT_SCAN_DONE;
+    srxd->option = MCU_UNI_CMD_UNSOLICITED_EVENT;
+    scanDoneEvt[sizeof(Mt76Connac2McuRxd)] = bus.lastHwScanSeq;
+    bus.injectRxPacket(MT_RX_EVENT_RING_BASE, MT_INT_RX_DONE_WM, scanDoneEvt, sizeof(scanDoneEvt));
+    dev.serviceInterrupt();
+    TEST_CHECK(!sta.isScanning() && bus.chanSwitchCount > preScanSwitches &&
+                   bus.lastChanSwitchPrimary == 116 && bus.lastChanSwitchCenter == 122 &&
+                   bus.lastChanSwitchBw == CMD_CBW_80MHZ,
+               "onScanComplete() must restore connected 5 GHz 80 MHz operating channel");
+
+    // 6. Back-to-back duplicate AP Deauth frames on RX Ring 0 must NOT re-enter cleanup
+    uint8_t deauth[26] = {};
+    putLe16(deauth + 0, 0x00c0);
+    memcpy(deauth + 4, dev.capability().macAddr, 6);
+    memcpy(deauth + 10, apBssid, 6);
+    memcpy(deauth + 16, apBssid, 6);
+    putLe16(deauth + 24, 7);
+    std::vector<uint8_t> rawDeauth(32 + sizeof(deauth), 0);
+    putLe32(rawDeauth.data() + 0, fieldPrep(MT_RXD0_LENGTH, static_cast<uint32_t>(rawDeauth.size())) |
+                                  fieldPrep(MT_RXD0_PKT_TYPE, PKT_TYPE_NORMAL));
+    putLe32(rawDeauth.data() + 4, MT_RXD1_NORMAL_GROUP_3);
+    putLe32(rawDeauth.data() + 12, fieldPrep(MT_RXD3_NORMAL_CH_FREQ, 116));
+    putLe32(rawDeauth.data() + 28, fieldPrep(MT_PRXV_RCPI0, rssiToRcpi(-45)));
+    memcpy(rawDeauth.data() + 32, deauth, sizeof(deauth));
+
+    uint32_t preDeauthTransitions = listener.linkTransitions;
+    bus.injectRxPacket(MT_RX_EVENT_RING_BASE, MT_INT_RX_DONE_WM, rawDeauth.data(), rawDeauth.size());
+    bus.injectRxPacket(MT_RX_EVENT_RING_BASE, MT_INT_RX_DONE_WM, rawDeauth.data(), rawDeauth.size());
+    dev.serviceInterrupt();
+    TEST_CHECK(sta.link().state == kStaInit && !listener.linkUp &&
+                   listener.lastDeauth == 7 &&
+                   listener.linkTransitions == preDeauthTransitions + 1,
+               "Duplicate AP Deauth must transition link down exactly once without re-entrancy");
     dev.mac().releaseAllTokens();
 }
 
@@ -1060,10 +1326,15 @@ static void testWclWpa2FourWayHandshakeEndToEnd(MockMT7902AsicBus &bus, MT7902De
     rxMeta.is8023 = true;
     rxMeta.rssi = -42;
     sta.onRxEthernetFrame(msg1, sizeof(msg1), rxMeta);
+    // Simulate AP retransmitting Msg 1/4 with identical ANonce — STA must reuse SNonce so Msg 3/4 MIC matches!
+    sta.onRxEthernetFrame(msg1, sizeof(msg1), rxMeta);
 
-    TEST_CHECK(bus.capturedBand0TxPayloads.size() == 1, "STA did not transmit EAPOL Msg 2/4");
+    TEST_CHECK(bus.capturedBand0TxPayloads.size() == 2, "STA did not transmit EAPOL Msg 2/4 on retry");
     const auto &msg2Eth = bus.capturedBand0TxPayloads[0];
     TEST_CHECK(msg2Eth.size() >= 14 + 99 && getBe16(msg2Eth.data() + 12) == 0x888e, "Invalid Msg 2/4 eth hdr");
+    TEST_CHECK(memcmp(bus.capturedBand0TxPayloads[0].data() + 14 + 17,
+                      bus.capturedBand0TxPayloads[1].data() + 14 + 17, 32) == 0,
+               "Retransmitted Msg 1/4 must reuse identical SNonce");
     const uint8_t *snonce = msg2Eth.data() + 14 + 17;
 
     // Derive expected PTK on AP side and verify STA's Msg 2/4 MIC
@@ -1188,6 +1459,7 @@ int main() {
         testTxwiTokensTxFreeAndRxdDecoding(mockBus, dev);
         testStaScanWpa2AssocKeyInstallAndData(mockBus, dev);
         testWclWpa2FourWayHandshakeEndToEnd(mockBus, dev);
+        test5Ghz80MhzBaPostScanAndReentrancy(mockBus, dev);
         dev.shutdown();
     }
 
@@ -1196,7 +1468,7 @@ int main() {
     testBluetoothPatcherLogic();
 
     printf("======================================================================\n");
-    printf(" [PASS] All 9 MT7902 test suites completed with 0 errors!\n");
+    printf(" [PASS] All 10 MT7902 test suites completed with 0 errors!\n");
     printf("======================================================================\n");
     return 0;
 }

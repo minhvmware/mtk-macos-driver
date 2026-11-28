@@ -6,7 +6,56 @@
 namespace mt7902 {
 
 MT7902Mcu::MT7902Mcu(IMT7902Bus &bus, MT7902Dma &dma)
-    : mBus(bus), mDma(dma) {}
+    : mBus(bus), mDma(dma) {
+    mTxScratch = static_cast<uint8_t *>(kallocZero(4608));
+    mRxScratch = static_cast<uint8_t *>(kallocZero(MT7902_RX_BUF_SIZE));
+    mDefDispatchScratch = static_cast<uint8_t *>(kallocZero(MT7902_RX_BUF_SIZE));
+    mDeferredRx = static_cast<DeferredRxSlot *>(kallocZero(sizeof(DeferredRxSlot) * kMaxDeferredRx));
+}
+
+MT7902Mcu::~MT7902Mcu() {
+    if (mDeferredRx) {
+        kfreeSized(mDeferredRx, sizeof(DeferredRxSlot) * kMaxDeferredRx);
+        mDeferredRx = nullptr;
+    }
+    if (mDefDispatchScratch) {
+        kfreeSized(mDefDispatchScratch, MT7902_RX_BUF_SIZE);
+        mDefDispatchScratch = nullptr;
+    }
+    if (mRxScratch) {
+        kfreeSized(mRxScratch, MT7902_RX_BUF_SIZE);
+        mRxScratch = nullptr;
+    }
+    if (mTxScratch) {
+        kfreeSized(mTxScratch, 4608);
+        mTxScratch = nullptr;
+    }
+}
+
+void MT7902Mcu::enqueueDeferredRx(const uint8_t *pkt, size_t len) {
+    if (!mDeferredRx || !pkt || len == 0 || len > MT7902_RX_BUF_SIZE || mDefCount >= kMaxDeferredRx)
+        return;
+    DeferredRxSlot &slot = mDeferredRx[mDefHead];
+    memcpy(slot.data, pkt, len);
+    slot.len = static_cast<uint16_t>(len);
+    mDefHead = (mDefHead + 1U) % kMaxDeferredRx;
+    mDefCount++;
+}
+
+void MT7902Mcu::flushDeferredRx() {
+    if (mFlushingDeferred || mInSendMessage || !mDeferredRx || !mDefDispatchScratch)
+        return;
+    mFlushingDeferred = true;
+    while (mDefCount > 0 && !mInSendMessage) {
+        DeferredRxSlot &slot = mDeferredRx[mDefTail];
+        size_t len = slot.len;
+        memcpy(mDefDispatchScratch, slot.data, len);
+        mDefTail = (mDefTail + 1U) % kMaxDeferredRx;
+        mDefCount--;
+        processRxRing0Packet(mDefDispatchScratch, len);
+    }
+    mFlushingDeferred = false;
+}
 
 uint8_t MT7902Mcu::nextSeq() {
     mMsgSeq = static_cast<uint8_t>((mMsgSeq + 1U) & 0x0fU);
@@ -134,6 +183,10 @@ void MT7902Mcu::processRxRing0Packet(const uint8_t *pkt, size_t len) {
     // MT7902 shares RX Ring 0 between MCU events, TX-free, TXS, and MCU/scan RX frames
     // (matching Linux mt7921_queue_rx_skb on MT_RXQ_MCU).
     if (pktType == PKT_TYPE_NORMAL || pktType == PKT_TYPE_NORMAL_MCU) {
+        if (mInSendMessage) {
+            enqueueDeferredRx(pkt, len);
+            return;
+        }
         if (mObserver)
             mObserver->onRxNormalPacket(pkt, len);
         return;
@@ -159,6 +212,10 @@ void MT7902Mcu::processRxRing0Packet(const uint8_t *pkt, size_t len) {
             mRocGranted = true;
         } else if ((rxd->eid == MCU_EVENT_SCAN_DONE || rxd->eid == MCU_EVENT_SCHED_SCAN_DONE) &&
                    mObserver && bodyLen >= 1) {
+            if (mInSendMessage) {
+                enqueueDeferredRx(pkt, len);
+                return;
+            }
             mObserver->onScanComplete(body[0]);
         }
         return;
@@ -185,6 +242,12 @@ void MT7902Mcu::processRxRing0Packet(const uint8_t *pkt, size_t len) {
                        rxd->eid == MCU_EVENT_TX_DONE;
 
     if (unsolicited) {
+        if (mInSendMessage &&
+            (rxd->eid == MCU_EVENT_SCAN_DONE || rxd->eid == MCU_EVENT_SCHED_SCAN_DONE ||
+             rxd->eid == MCU_EVENT_BSS_BEACON_LOSS || rxd->eid == MCU_EVENT_COREDUMP)) {
+            enqueueDeferredRx(pkt, len);
+            return;
+        }
         const uint8_t *body = pkt + sizeof(Mt76Connac2McuRxd);
         size_t bodyLen = len - sizeof(Mt76Connac2McuRxd);
         switch (rxd->eid) {
@@ -217,34 +280,41 @@ void MT7902Mcu::processRxRing0Packet(const uint8_t *pkt, size_t len) {
         memcpy(mRespStorage, pkt, copyLen);
         mRespSize = copyLen;
         mRespReceived = true;
-    } else if (mWaitingResp) {
-        MTK_LOG("MCU rx mismatch while waiting seq=%u cmd=0x%08x: got eid=0x%02x ext=0x%02x seq=%u opt=0x%02x len=%zu",
-                mWaitSeq, mWaitCmd, rxd->eid, rxd->ext_eid, rxd->seq, rxd->option, len);
     }
 }
 
 void MT7902Mcu::drainRxEvents() {
-    uint8_t buf[MT7902_RX_BUF_SIZE];
+    if (!mRxScratch)
+        return;
     size_t len = 0;
     for (int i = 0; i < 512; ++i) {
-        if (mDma.rxDequeue(kRxMcuEvent, buf, sizeof(buf), len) != kOk)
+        if (mDma.rxDequeue(kRxMcuEvent, mRxScratch, MT7902_RX_BUF_SIZE, len) != kOk)
             break;
-        processRxRing0Packet(buf, len);
+        processRxRing0Packet(mRxScratch, len);
     }
+    if (!mInSendMessage)
+        flushDeferredRx();
 }
 
 int MT7902Mcu::sendMessage(uint32_t cmd, const void *payload, size_t payloadLen,
                            bool waitResp, uint8_t *respBuf,
                            size_t respCap, size_t *respLen,
                            uint32_t timeoutMs) {
-    uint8_t txBuf[4608];
+    if (!mTxScratch)
+        return kErrNoMem;
+    if (mInSendMessage) {
+        MTK_ERR("Prevented re-entrant MCU cmd 0x%08x while waiting on 0x%08x", cmd, mWaitCmd);
+        return kErrBusy;
+    }
+
     uint8_t seq = 0;
-    size_t msgLen = buildMessage(cmd, payload, payloadLen, txBuf, sizeof(txBuf), seq);
+    size_t msgLen = buildMessage(cmd, payload, payloadLen, mTxScratch, 4608, seq);
     if (msgLen == 0)
         return kErrInvalid;
 
     DmaQueueId qid = (cmd == MCU_CMD_FW_SCATTER) ? kTxFwdl : kTxMcuWm;
 
+    mInSendMessage = true;
     if (waitResp) {
         mWaitingResp = true;
         mWaitSeq = seq;
@@ -253,23 +323,63 @@ int MT7902Mcu::sendMessage(uint32_t cmd, const void *payload, size_t payloadLen,
         mRespSize = 0;
     }
 
-    int err = mDma.txSubmitCopy(qid, txBuf, msgLen);
+    int err = mDma.txSubmitCopy(qid, mTxScratch, msgLen);
     if (err != kOk) {
         mWaitingResp = false;
+        mInSendMessage = false;
+        flushDeferredRx();
         return err;
     }
 
-    if (!waitResp)
+    if (!waitResp) {
+        mInSendMessage = false;
+        flushDeferredRx();
         return kOk;
+    }
 
     uint64_t deadline = mBus.nowMs() + timeoutMs;
     while (!mRespReceived) {
         drainRxEvents();
         if (mRespReceived)
             break;
+        if (mBus.rr(MT_WFDMA0_HOST_INT_ENA) == 0) {
+            uint32_t pending = mBus.rr(MT_WFDMA0_HOST_INT_STA) &
+                               (HOST_RX_DONE_INT_ENA0 | HOST_TX_DONE_INT_ENA16 | HOST_TX_DONE_INT_ENA17);
+            if (pending)
+                mBus.wr(MT_WFDMA0_HOST_INT_STA, pending);
+        }
+        uint32_t mcuCmdReg = mBus.rr(MT_MCU_CMD);
+        if (mcuCmdReg & MT_MCU_CMD_STOP_DMA) {
+            mWaitingResp = false;
+            mInSendMessage = false;
+            uint32_t txBase = MT_TX_RING_BASE + MT7902_TXQ_MCU_WM * MT_RING_STRIDE;
+            MTK_ERR("MCU cmd 0x%08x (seq %u) aborted: STOP_DMA | tx15=%u/%u rx0=%u/%u misc=0x%x mcucmd=0x%x glo=0x%08x intsta=0x%08x",
+                    cmd, seq,
+                    mBus.rr(txBase + MT_RING_REG_CPU_IDX), mBus.rr(txBase + MT_RING_REG_DMA_IDX),
+                    mBus.rr(MT_RX_EVENT_RING_BASE + MT_RING_REG_CPU_IDX),
+                    mBus.rr(MT_RX_EVENT_RING_BASE + MT_RING_REG_DMA_IDX),
+                    mBus.rr(MT_CONN_ON_MISC), mcuCmdReg,
+                    mBus.rr(MT_WFDMA0_GLO_CFG), mBus.rr(MT_WFDMA0_HOST_INT_STA));
+            flushDeferredRx();
+            return kErrIO;
+        }
         if (mBus.nowMs() >= deadline) {
             mWaitingResp = false;
-            MTK_ERR("MCU cmd 0x%08x (seq %u) timed out", cmd, seq);
+            mInSendMessage = false;
+            uint32_t txBase = MT_TX_RING_BASE + MT7902_TXQ_MCU_WM * MT_RING_STRIDE;
+            uint32_t txCpu = mBus.rr(txBase + MT_RING_REG_CPU_IDX);
+            uint32_t txDma = mBus.rr(txBase + MT_RING_REG_DMA_IDX);
+            uint32_t rxCpu = mBus.rr(MT_RX_EVENT_RING_BASE + MT_RING_REG_CPU_IDX);
+            uint32_t rxDma = mBus.rr(MT_RX_EVENT_RING_BASE + MT_RING_REG_DMA_IDX);
+            uint32_t misc = mBus.rr(MT_CONN_ON_MISC);
+            uint32_t lpctl = mBus.rr(MT_CONN_ON_LPCTL);
+            uint32_t glo = mBus.rr(MT_WFDMA0_GLO_CFG);
+            uint32_t intsta = mBus.rr(MT_WFDMA0_HOST_INT_STA);
+            MTK_ERR("MCU cmd 0x%08x (seq %u) timed out | tx15=%u/%u rx0=%u/%u misc=0x%x mcucmd=0x%x lpctl=0x%x glo=0x%08x intsta=0x%08x swena=0x%x dmashdl=0x%x gloext0=0x%x",
+                    cmd, seq, txCpu, txDma, rxCpu, rxDma, misc, mcuCmdReg, lpctl, glo, intsta,
+                    mBus.rr(MT_MCU2HOST_SW_INT_ENA), mBus.rr(MT_DMASHDL_SW_CONTROL),
+                    mBus.rr(MT_WFDMA0_GLO_CFG_EXT0));
+            flushDeferredRx();
             return kErrTimeout;
         }
         mBus.delayUs(200);
@@ -290,6 +400,8 @@ int MT7902Mcu::sendMessage(uint32_t cmd, const void *payload, size_t payloadLen,
         *respLen = (payloadOff <= mRespSize) ? (mRespSize - payloadOff) : 0;
     }
 
+    mInSendMessage = false;
+    flushDeferredRx();
     return status;
 }
 
@@ -334,9 +446,16 @@ int MT7902Mcu::sendFirmwareScatter(const uint8_t *data, size_t len, size_t maxCh
         if (err != kOk)
             return err;
         offset += chunk;
-        // Periodically reclaim completed FWDL TX descriptors
-        if ((offset / maxChunk) % 16 == 0)
-            mDma.txCleanup(kTxFwdl);
+        mDma.txCleanup(kTxFwdl);
+    }
+    // Wait for all Ring 16 FWDL scatter descriptors to complete DMA before Ring 15
+    // sends startPatch / next initDownload / startFirmware.
+    uint64_t deadline = mBus.nowMs() + 500ULL;
+    while (mDma.txQueued(kTxFwdl) > 0 && mBus.nowMs() < deadline) {
+        mDma.txCleanup(kTxFwdl);
+        if (mDma.txQueued(kTxFwdl) == 0)
+            break;
+        mBus.delayUs(100);
     }
     return kOk;
 }
@@ -445,9 +564,15 @@ int MT7902Mcu::setChannelInfo(const ChannelConfig &ch, uint8_t antennaMask, uint
     if (nss == 0) nss = 1;
     req.tx_streams_num = nss;
     req.rx_streams = (cmd == MCU_EXT_CMD_CHANNEL_SWITCH) ? nss : antennaMask;
-    req.switch_reason = (cmd == MCU_EXT_CMD_SET_RX_PATH)
-                            ? CH_SWITCH_NORMAL
-                            : (ch.offchannel ? CH_SWITCH_SCAN_BYPASS_DPD : CH_SWITCH_NORMAL);
+    bool isDfs = (ch.band == 1 && ch.primaryChannel >= 52 && ch.primaryChannel <= 144);
+    if (cmd == MCU_EXT_CMD_SET_RX_PATH)
+        req.switch_reason = CH_SWITCH_NORMAL;
+    else if (ch.offchannel)
+        req.switch_reason = CH_SWITCH_SCAN_BYPASS_DPD;
+    else if (isDfs)
+        req.switch_reason = CH_SWITCH_DFS;
+    else
+        req.switch_reason = CH_SWITCH_NORMAL;
     req.band_idx = 0;
     req.center_ch2 = ch.centerChannel2;
     req.channel_band = ch.band;
@@ -514,7 +639,15 @@ int MT7902Mcu::setChannelDomain(const char alpha2[2], const ScanChannelEntry *ch
             if (channels[i].band != band)
                 continue;
             putLe16(&chOut[outIdx].hw_value, channels[i].channel_num);
-            putLe32(&chOut[outIdx].flags, 0);
+            // Match Linux ieee80211_channel_flags (IEEE80211_CHAN_NO_IR=BIT(1), RADAR=BIT(3))
+            // so Connac2 firmware uses passive/DFS dwell (~120ms) on ch 12-13 and 5 GHz DFS 52-144.
+            uint32_t chFlags = 0;
+            if (band == 1 && channels[i].channel_num >= 12) {
+                chFlags = MTK_BIT(1); // NO_IR
+            } else if (band == 2 && channels[i].channel_num >= 52 && channels[i].channel_num <= 144) {
+                chFlags = MTK_BIT(1) | MTK_BIT(3); // NO_IR | RADAR
+            }
+            putLe32(&chOut[outIdx].flags, chFlags);
             ++outIdx;
             if (band == 1) hdr->n_2ch++;
             else if (band == 2) hdr->n_5ch++;
@@ -587,6 +720,11 @@ int MT7902Mcu::setEdcaParams(uint8_t bssIdx, bool qos) {
     req.qos = qos ? 1 : 0;
     req.wmm_idx = 0;
     return sendMessage(MCU_CE_CMD_SET_EDCA_PARMS, &req, sizeof(req), false);
+}
+
+int MT7902Mcu::setFwLog2Host(uint8_t ctrl) {
+    uint8_t req[4] = { ctrl, 0, 0, 0 };
+    return sendMessage(MCU_CE_CMD_FWLOG_2_HOST, req, sizeof(req), false);
 }
 
 int MT7902Mcu::uniAddDev(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
@@ -662,7 +800,8 @@ int MT7902Mcu::uniSetChctx(uint8_t bssIdx, const ChannelConfig &ch, uint8_t ante
 
 int MT7902Mcu::uniAddBss(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
                          const uint8_t bssid[6], const ChannelConfig &ch,
-                         uint16_t bcnInterval, uint8_t dtimPeriod, bool qos, bool enable) {
+                         uint16_t bcnInterval, uint8_t dtimPeriod, bool qos, bool enable,
+                         bool he, uint8_t bssColor) {
     struct __attribute__((packed)) {
         uint8_t bss_idx;
         uint8_t pad[3];
@@ -708,6 +847,30 @@ int MT7902Mcu::uniAddBss(uint8_t omacIdx, uint8_t bssIdx, uint16_t bmcWcid,
     int err = sendMessage(MCU_UNI_CMD_BSS_INFO_UPDATE, &req, sizeof(req), true);
     if (err != kOk)
         return err;
+    if (enable && he) {
+        struct __attribute__((packed)) {
+            uint8_t bss_idx;
+            uint8_t pad[3];
+            BssHeBasicTlv he;
+            BssColorTlv color;
+        } heReq;
+        memset(&heReq, 0, sizeof(heReq));
+        heReq.bss_idx = bssIdx;
+        putLe16(&heReq.he.tag, UNI_BSS_INFO_HE_BASIC);
+        putLe16(&heReq.he.len, sizeof(BssHeBasicTlv));
+        putLe16(&heReq.he.he_rts_thres, 1023);
+        heReq.he.he_pe_duration = 4;
+        putLe16(&heReq.he.max_nss_mcs[0], 0xfffeU); // 1SS MCS 0-11 <= 80 MHz
+        putLe16(&heReq.he.max_nss_mcs[1], 0xffffU);
+        putLe16(&heReq.he.max_nss_mcs[2], 0xffffU);
+        putLe16(&heReq.color.tag, UNI_BSS_INFO_BSS_COLOR);
+        putLe16(&heReq.color.len, sizeof(BssColorTlv));
+        if (bssColor != 0 && bssColor <= 63) {
+            heReq.color.enable = 1;
+            heReq.color.bss_color = bssColor;
+        }
+        (void)sendMessage(MCU_UNI_CMD_BSS_INFO_UPDATE, &heReq, sizeof(heReq), true);
+    }
     if (enable)
         return uniSetChctx(bssIdx, ch, 1);
     return kOk;
@@ -753,7 +916,69 @@ int MT7902Mcu::uniUpdateSta(const StaUpdateParams &p) {
             pos += sizeof(StaRecHtTlv);
             putLe16(&ht->tag, STA_REC_HT);
             putLe16(&ht->len, sizeof(StaRecHtTlv));
-            putLe16(&ht->ht_cap, 0x01ef);
+            putLe16(&ht->ht_cap, (p.bw >= CMD_CBW_40MHZ) ? 0x016fU : 0x012dU);
+            topTlvs++;
+        }
+
+        if (p.vht) {
+            auto *vht = reinterpret_cast<StaRecVhtTlv *>(buf + pos);
+            pos += sizeof(StaRecVhtTlv);
+            putLe16(&vht->tag, STA_REC_VHT);
+            putLe16(&vht->len, sizeof(StaRecVhtTlv));
+            putLe32(&vht->vht_cap, (p.bw >= CMD_CBW_80MHZ) ? 0x03800132U : 0x03800112U);
+            putLe16(&vht->vht_rx_mcs_map, 0xfffeU);
+            putLe16(&vht->vht_tx_mcs_map, 0xfffeU);
+            topTlvs++;
+        }
+
+        if (p.ht || p.he) {
+            auto *amsdu = reinterpret_cast<StaRecAmsduTlv *>(buf + pos);
+            pos += sizeof(StaRecAmsduTlv);
+            putLe16(&amsdu->tag, STA_REC_HW_AMSDU);
+            putLe16(&amsdu->len, sizeof(StaRecAmsduTlv));
+            amsdu->max_amsdu_num = 8;
+            amsdu->max_mpdu_size = 1;
+            amsdu->amsdu_en = 1;
+            topTlvs++;
+        }
+
+        if (p.he) {
+            uint8_t bwSet = 0;
+            if (p.band != 0 && p.bw >= CMD_CBW_40MHZ)
+                bwSet = 0x04; // 40/80 MHz in 5/6 GHz
+            else if (p.band == 0 && p.bw >= CMD_CBW_40MHZ)
+                bwSet = 0x02; // 40 MHz in 2.4 GHz
+
+            auto *he = reinterpret_cast<StaRecHeTlv *>(buf + pos);
+            pos += sizeof(StaRecHeTlv);
+            putLe16(&he->tag, STA_REC_HE);
+            putLe16(&he->len, sizeof(StaRecHeTlv));
+            putLe32(&he->he_cap,
+                    STA_REC_HE_CAP_HTC | STA_REC_HE_CAP_AMSDU_IN_AMPDU |
+                    STA_REC_HE_CAP_LDPC | STA_REC_HE_CAP_SU_PPDU_1LTF_8US_GI |
+                    STA_REC_HE_CAP_NDP_4LTF_3DOT2MS_GI | STA_REC_HE_CAP_LE_EQ_80M_RX_STBC);
+            he->max_ampdu_exp = 3;
+            he->bw_set = bwSet;
+            he->pkt_ext = 2;
+            putLe16(&he->max_nss_mcs[0], 0xfffeU); // 1SS MCS 0-11 <= 80 MHz
+            putLe16(&he->max_nss_mcs[1], 0xffffU);
+            putLe16(&he->max_nss_mcs[2], 0xffffU);
+            topTlvs++;
+
+            auto *he2 = reinterpret_cast<StaRecHeV2Tlv *>(buf + pos);
+            pos += sizeof(StaRecHeV2Tlv);
+            putLe16(&he2->tag, STA_REC_HE_V2);
+            putLe16(&he2->len, sizeof(StaRecHeV2Tlv));
+            he2->he_mac_cap[0] = 0x05;
+            he2->he_mac_cap[3] = 0x18;
+            he2->he_mac_cap[4] = 0x04;
+            he2->he_phy_cap[0] = bwSet;
+            he2->he_phy_cap[1] = 0x22;
+            he2->he_phy_cap[2] = 0x42;
+            he2->pkt_ext = 0x10; // IEEE80211_HE_PHY_CAP9_NOMINAL_PKT_PADDING_16US
+            putLe16(&he2->max_nss_mcs[0], 0xfffeU);
+            putLe16(&he2->max_nss_mcs[1], 0xffffU);
+            putLe16(&he2->max_nss_mcs[2], 0xffffU);
             topTlvs++;
         }
 
@@ -764,11 +989,16 @@ int MT7902Mcu::uniUpdateSta(const StaUpdateParams &p) {
         if (p.band == 0) {
             putLe16(&phy->basic_rate, 0x000f);
             phy->phy_type = static_cast<uint8_t>(
-                PHY_TYPE_BIT_HR_DSSS | PHY_TYPE_BIT_ERP | (p.ht ? PHY_TYPE_BIT_HT : 0));
+                PHY_TYPE_BIT_HR_DSSS | PHY_TYPE_BIT_ERP |
+                (p.ht ? PHY_TYPE_BIT_HT : 0) |
+                (p.he ? PHY_TYPE_BIT_HE : 0));
         } else {
             putLe16(&phy->basic_rate, 0x0015);
             phy->phy_type = static_cast<uint8_t>(
-                PHY_TYPE_BIT_OFDM | (p.ht ? PHY_TYPE_BIT_HT : 0));
+                PHY_TYPE_BIT_OFDM |
+                (p.ht ? PHY_TYPE_BIT_HT : 0) |
+                (p.vht ? PHY_TYPE_BIT_VHT : 0) |
+                (p.he ? PHY_TYPE_BIT_HE : 0));
         }
         phy->ampdu = 0x1b;
         phy->rcpi = rssiToRcpi(p.rssi);
@@ -791,6 +1021,8 @@ int MT7902Mcu::uniUpdateSta(const StaUpdateParams &p) {
         putLe16(&st->tag, STA_REC_STATE);
         putLe16(&st->len, sizeof(StaRecStateTlv));
         st->state = p.staState;
+        if (p.vht)
+            st->vht_opmode = p.bw & 0x3U; // 1SS (rx_nss - 1 == 0) + operating BW (0=20,1=40,2=80)
         topTlvs++;
     }
 
@@ -849,8 +1081,19 @@ int MT7902Mcu::uniUpdateSta(const StaUpdateParams &p) {
             putLe16(&wht->len, sizeof(WtblHtTlv));
             wht->ht = 1;
             wht->ldpc = 1;
-            wht->af = 3;
+            wht->af = 7;
             wht->mm = 3;
+            wtblTlvs++;
+        }
+
+        if (!p.broadcast && p.vht) {
+            auto *wvht = reinterpret_cast<WtblVhtTlv *>(buf + pos);
+            pos += sizeof(WtblVhtTlv);
+            wtblContainerLen += sizeof(WtblVhtTlv);
+            putLe16(&wvht->tag, WTBL_VHT);
+            putLe16(&wvht->len, sizeof(WtblVhtTlv));
+            wvht->ldpc = 1;
+            wvht->vht = 1;
             wtblTlvs++;
         }
     }
@@ -860,6 +1103,72 @@ int MT7902Mcu::uniUpdateSta(const StaUpdateParams &p) {
     putLe16(&hdr->tlv_num, topTlvs);
 
     return sendMessage(MCU_UNI_CMD_STA_REC_UPDATE, buf, pos, true);
+}
+
+int MT7902Mcu::uniSetBa(uint8_t bssIdx, uint16_t wcid, const uint8_t peerMac[6],
+                        uint8_t tid, uint16_t ssn, uint16_t winSize,
+                        bool amsdu, bool enable, bool tx) {
+    // 1. Update WTBL_BA entry (matching mt76_connac_mcu_sta_ba)
+    struct __attribute__((packed)) {
+        StaReqHdr hdr;
+        McuTlvHdr staWtbl;
+        WtblReqHdr wtblHdr;
+        WtblBaTlv ba;
+    } wtblReq;
+    memset(&wtblReq, 0, sizeof(wtblReq));
+    wtblReq.hdr.bss_idx = bssIdx;
+    wtblReq.hdr.wlan_idx_lo = static_cast<uint8_t>(wcid & 0xffU);
+    wtblReq.hdr.wlan_idx_hi = static_cast<uint8_t>((wcid >> 8) & 0xffU);
+    putLe16(&wtblReq.hdr.tlv_num, 1);
+    wtblReq.hdr.is_tlv_append = 1;
+
+    putLe16(&wtblReq.staWtbl.tag, STA_REC_WTBL);
+    putLe16(&wtblReq.staWtbl.len, sizeof(McuTlvHdr) + sizeof(WtblReqHdr) + sizeof(WtblBaTlv));
+    wtblReq.wtblHdr.wlan_idx_lo = static_cast<uint8_t>(wcid & 0xffU);
+    wtblReq.wtblHdr.wlan_idx_hi = static_cast<uint8_t>((wcid >> 8) & 0xffU);
+    wtblReq.wtblHdr.operation = WTBL_SET;
+    putLe16(&wtblReq.wtblHdr.tlv_num, 1);
+
+    putLe16(&wtblReq.ba.tag, WTBL_BA);
+    putLe16(&wtblReq.ba.len, sizeof(WtblBaTlv));
+    wtblReq.ba.tid = tid & 0x7U;
+    wtblReq.ba.ba_type = tx ? MT_BA_TYPE_ORIGINATOR : MT_BA_TYPE_RECIPIENT;
+    putLe16(&wtblReq.ba.ba_winsize, enable ? winSize : 0U);
+    if (tx) {
+        putLe16(&wtblReq.ba.sn, enable ? ssn : 0U);
+        wtblReq.ba.ba_en = enable ? 1 : 0;
+    } else {
+        memcpy(wtblReq.ba.peer_addr, peerMac, 6);
+        wtblReq.ba.rst_ba_tid = tid & 0x7U;
+        wtblReq.ba.rst_ba_sel = RST_BA_MAC_TID_MATCH;
+        wtblReq.ba.rst_ba_sb = 1;
+    }
+
+    int err = sendMessage(MCU_UNI_CMD_STA_REC_UPDATE, &wtblReq, sizeof(wtblReq), true);
+    if (err != kOk)
+        return err;
+
+    // 2. Update STA_REC_BA
+    struct __attribute__((packed)) {
+        StaReqHdr hdr;
+        StaRecBaTlv ba;
+    } baReq;
+    memset(&baReq, 0, sizeof(baReq));
+    baReq.hdr.bss_idx = bssIdx;
+    baReq.hdr.wlan_idx_lo = static_cast<uint8_t>(wcid & 0xffU);
+    baReq.hdr.wlan_idx_hi = static_cast<uint8_t>((wcid >> 8) & 0xffU);
+    putLe16(&baReq.hdr.tlv_num, 1);
+    baReq.hdr.is_tlv_append = 1;
+
+    putLe16(&baReq.ba.tag, STA_REC_BA);
+    putLe16(&baReq.ba.len, sizeof(StaRecBaTlv));
+    baReq.ba.tid = tid & 0x7U;
+    baReq.ba.ba_type = tx ? MT_BA_TYPE_ORIGINATOR : MT_BA_TYPE_RECIPIENT;
+    baReq.ba.amsdu = amsdu ? 1 : 0;
+    baReq.ba.ba_en = enable ? static_cast<uint8_t>(1U << (tid & 0x7U)) : 0U;
+    putLe16(&baReq.ba.ssn, ssn);
+    putLe16(&baReq.ba.winsize, winSize);
+    return sendMessage(MCU_UNI_CMD_STA_REC_UPDATE, &baReq, sizeof(baReq), true);
 }
 
 int MT7902Mcu::acquireRoc(uint8_t bssIdx, const ChannelConfig &ch,
@@ -1022,11 +1331,32 @@ int MT7902Mcu::startHwScan(const ScanRequestParams &params) {
     req.ssid_type_ext = validSsids ? MTK_BIT(0) : 0;
     req.ssids_num = validSsids;
 
-    // Connac2 firmware (MT7902/MT7921) uses duration=0 for optimal split-scan timing
-    // (matching Linux mt76_connac_mcu_hw_scan: duration = is_connac2 ? 0 : 60)
-    putLe16(&req.channel_dwell_time, 0);
-    putLe16(&req.channel_min_dwell_time, 0);
-    putLe16(&req.timeout_value, 0);
+    // Match Linux mt76_connac_mcu_hw_scan(): use dwell=0/timeout=0 on active non-DFS scans so
+    // firmware uses fast active timing. For passive scans or small 5 GHz DFS batches (ch 52..144,
+    // marked NO_IR|RADAR where beacons arrive every 102.4ms), set >=120ms dwell with split-scan
+    // timeout headroom (never pass dwell>0 with timeout_value=0!).
+    bool hasDfs = false;
+    bool allDfs = (params.channelCount > 0 && params.channelCount <= 64);
+    for (uint8_t i = 0; i < params.channelCount && i < 64; ++i) {
+        bool isDfs = (params.channels[i].band == 2 &&
+                      params.channels[i].channel_num >= 52 &&
+                      params.channels[i].channel_num <= 144);
+        if (isDfs)
+            hasDfs = true;
+        else
+            allDfs = false;
+    }
+    bool boostDfsDwell = params.active && params.channelCount > 0 && params.channelCount <= 6 &&
+                         (allDfs || (params.channelCount <= 3 && hasDfs));
+    uint16_t dwell = params.dwellMs ? params.dwellMs
+                                    : (!params.active ? 130U : (boostDfsDwell ? 120U : 0U));
+    uint16_t chCntForTimeout = (params.channelCount > 0 && params.channelCount <= 64)
+                                   ? params.channelCount
+                                   : 38U;
+    uint16_t timeoutVal = dwell ? static_cast<uint16_t>(chCntForTimeout * 300U) : 0U;
+    putLe16(&req.channel_dwell_time, dwell);
+    putLe16(&req.channel_min_dwell_time, dwell);
+    putLe16(&req.timeout_value, timeoutVal);
 
     if (params.channelCount == 0 || params.channelCount > 64) {
         req.channel_type = 0; // Full channel scan

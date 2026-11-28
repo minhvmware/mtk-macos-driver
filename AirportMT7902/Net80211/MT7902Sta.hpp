@@ -42,8 +42,12 @@ struct StaLinkInfo {
     uint8_t ssidLen = 0;
     uint8_t bssid[6] = {};
     uint8_t channel = 1;
+    uint8_t centerChannel = 1;
     WifiBand band = kBand2GHz;
     uint8_t bw = CMD_CBW_20MHZ;
+    bool apHasVht = false;
+    bool apHasHe = false;
+    uint8_t bssColor = 0;
     uint16_t aid = 0;
     uint16_t apWcid = 1;
     uint16_t beaconInterval = 100;
@@ -87,9 +91,10 @@ public:
 
     void setListener(IStaEventListener *listener) { mListener = listener; }
 
-    // Radio power control
+    // Radio power & MAC address control
     int setPower(bool on);
     bool isPoweredOn() const { return mPowerOn; }
+    int setMacAddress(const uint8_t mac[6]);
 
     // Country code / regulatory
     int setCountryCode(const char cc[2]);
@@ -97,7 +102,7 @@ public:
 
     // Scan control
     int startScan(const ScanRequestParams &params);
-    int abortScan();
+    int abortScan(bool restoreChan = true);
     bool isScanning() const { return mScanning; }
 
     // Association & disconnection
@@ -120,7 +125,8 @@ public:
                                      const uint8_t *rsnIe, uint16_t rsnIeLen,
                                      bool ht, bool vht, bool he,
                                      uint8_t *out, size_t outCap,
-                                     bool fiveGhz = false);
+                                     bool fiveGhz = false,
+                                     uint8_t bw = CMD_CBW_20MHZ);
     static size_t buildDeauthFrame(const uint8_t staMac[6], const uint8_t bssid[6],
                                    uint16_t seqNum, uint16_t reasonCode,
                                    uint8_t *out, size_t outCap);
@@ -138,9 +144,12 @@ public:
     MT7902Device &device() { return mDev; }
 
 private:
+    void cleanupHardwareSession(bool sendDeauth, uint16_t reasonCode);
+    void restoreOperatingChannel();
     void handleAuthResp(const uint8_t *frame, size_t len);
     void handleAssocResp(const uint8_t *frame, size_t len);
     void handleDeauthOrDisassoc(const uint8_t *frame, size_t len, bool isDisassoc);
+    void handleActionFrame(const uint8_t *frame, size_t len);
     void handleData80211Frame(const uint8_t *frame, size_t len);
     bool handleInboundEapol(const uint8_t *ethFrame, size_t len);
     uint16_t nextMgmtSeq();
@@ -155,6 +164,9 @@ private:
     bool mScanning = false;
     bool mStaAdded = false;
     bool mBssActive = false;
+    bool mCleaningUp = false;
+    uint8_t mAuthRetryCount = 0;
+    uint8_t mBaLoggedMask = 0;
     uint16_t mMgmtSeq = 0;
 };
 

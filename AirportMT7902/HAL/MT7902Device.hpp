@@ -97,6 +97,7 @@ private:
     int32_t mLastRssi = -65;
     uint32_t mRxNormalCount = 0;
     uint32_t mRxParseFailCount = 0;
+    uint8_t *mRxDataScratch = nullptr;
 };
 
 } // namespace mt7902

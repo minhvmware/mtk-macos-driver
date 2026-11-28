@@ -11,17 +11,23 @@ static constexpr int kDrvOwnRetries = 10;
 MT7902Device::MT7902Device(IMT7902Bus &bus)
     : mBus(bus), mDma(bus), mMcu(bus, mDma), mFw(bus, mMcu), mMac(bus, mDma) {
     mMcu.setObserver(this);
+    mRxDataScratch = static_cast<uint8_t *>(kallocZero(MT7902_RX_BUF_SIZE));
 }
 
 MT7902Device::~MT7902Device() {
     shutdown();
+    if (mRxDataScratch) {
+        kfreeSized(mRxDataScratch, MT7902_RX_BUF_SIZE);
+        mRxDataScratch = nullptr;
+    }
 }
 
 int MT7902Device::acquireDriverOwn() {
     for (int i = 0; i < kDrvOwnRetries; ++i) {
         mBus.wr(MT_CONN_ON_LPCTL, PCIE_LPCR_HOST_CLR_OWN);
-        if (mBus.isAspmSupported())
-            mBus.delayUs(2500);
+        // Always wait 2.5ms after CLR_OWN: physical MT7902 PCIe link may have ASPM L0s/L1
+        // enabled even when hypervisor/VFIO virtualizes LnkCap as 0.
+        mBus.delayUs(2500);
         if (mBus.pollMs(MT_CONN_ON_LPCTL, PCIE_LPCR_HOST_OWN_SYNC, 0, 50, 1))
             return kOk;
     }
@@ -84,21 +90,28 @@ int MT7902Device::probeAndInit() {
         return kErrNoDev;
     }
 
-    // Steps 3..8: Retry up to 6 times (matching Linux MT792x_MCU_INIT_RETRY_COUNT)
+    // Steps 3..8: Retry up to 8 times (matching Linux MT792x_MCU_INIT_RETRY_COUNT)
     // to cleanly survive concurrent MT7902 USB Bluetooth WMT firmware download/reset at boot.
-    static constexpr int kMcuInitRetries = 6;
+    static constexpr int kMcuInitRetries = 8;
     for (int attempt = 0; attempt < kMcuInitRetries; ++attempt) {
         if (attempt > 0) {
             MTK_LOG("MT7902 probeAndInit retry %d/%d after err=%d",
                     attempt + 1, kMcuInitRetries, err);
+            (void)releaseDriverOwn();
+            mBus.sleepMs(200);
             (void)acquireDriverOwn();
-            mBus.sleepMs(250);
+            mBus.sleepMs(300);
         }
 
-        // Step 3: Reset Wi-Fi subsystem
+        // Step 3: Reset Wi-Fi subsystem and force normal firmware mode (matching __mt7921_init_hardware)
         err = wfsysReset();
         if (err != kOk)
             continue;
+
+        mBus.wr(MT_SWDEF_MODE, MT_SWDEF_NORMAL_MODE);
+        uint32_t staleMcuCmd = mBus.rr(MT_MCU_CMD);
+        if (staleMcuCmd)
+            mBus.wr(MT_MCU_CMD, staleMcuCmd);
 
         mBus.wr(MT_WFDMA0_HOST_INT_ENA, 0);
         mBus.wr(MT_PCIE_MAC_INT_ENABLE, 0xff);
@@ -107,6 +120,15 @@ int MT7902Device::probeAndInit() {
         err = mDma.init();
         if (err != kOk)
             continue;
+        // Mask WFDMA0 host IRQs during synchronous polling probeAndInit() while keeping
+        // MT_PCIE_MAC_INT_ENABLE=0xff (matching Linux mt7921_pci_probe).
+        mBus.wr(MT_WFDMA0_HOST_INT_ENA, 0);
+        mBus.wr(MT_PCIE_MAC_INT_ENABLE, 0xff);
+        {
+            uint32_t sta = mBus.rr(MT_WFDMA0_HOST_INT_STA);
+            if (sta)
+                mBus.wr(MT_WFDMA0_HOST_INT_STA, sta);
+        }
 
         // Step 5: Band0 driver own + disable PCIe L0s before firmware download
         err = driverOwnBand0();
@@ -148,12 +170,23 @@ int MT7902Device::probeAndInit() {
                 mCap.macAddr[3], mCap.macAddr[4], mCap.macAddr[5],
                 mCap.has2Ghz, mCap.has5Ghz, mCap.has6Ghz, mCap.nss, mCap.supportsHe);
 
+        // Enable firmware debug log events during boot (matching Linux mt7921_run_firmware)
+        (void)mMcu.setFwLog2Host(1);
+
         // Step 8: Configure EEPROM EFUSE mode + MAC hardware registers.
-        // On some MT7902 cold/warm boots where CONNSYS Bluetooth already holds EFUSE
-        // arbitration, EFUSE_BUFFER_MODE (0x21ed) does not emit an EXT_ACK even though
-        // EFUSE is already active (verified by getNicCapability() above). Verify MCU
-        // liveness via setRtsThreshold() (matching mt7921_mac_init) before retrying.
+        if (mBus.rr(MT_MCU_CMD) & MT_MCU_CMD_STOP_DMA) {
+            MTK_LOG("CONNSYS signaled STOP_DMA during init (mcucmd=0x%x); retrying",
+                    mBus.rr(MT_MCU_CMD));
+            err = kErrIO;
+            mDma.cleanup();
+            continue;
+        }
         int efuseErr = mMcu.setEepromEfuseMode();
+        if (efuseErr == kErrIO && (mBus.rr(MT_MCU_CMD) & MT_MCU_CMD_STOP_DMA)) {
+            err = kErrIO;
+            mDma.cleanup();
+            continue;
+        }
         if (efuseErr != kOk) {
             MTK_LOG("setEepromEfuseMode returned %d; verifying MCU liveness via RTS threshold",
                     efuseErr);
@@ -175,6 +208,12 @@ int MT7902Device::probeAndInit() {
 
         // MT7902 hardware quirk (init.c:307): keep deep sleep disabled by default for stability
         (void)mMcu.setDeepSleep(false);
+
+        // Re-enable WFDMA0 host IRQs now that synchronous probeAndInit() succeeded
+        uint32_t pendingInt = mBus.rr(MT_WFDMA0_HOST_INT_STA);
+        if (pendingInt)
+            mBus.wr(MT_WFDMA0_HOST_INT_STA, pendingInt);
+        mDma.enableInterrupts();
 
         mInitialized = true;
         return kOk;
@@ -234,6 +273,7 @@ int MT7902Device::startRadio() {
     defCh.band = 0;
     defCh.bw = CMD_CBW_20MHZ;
     (void)mMcu.setChannel(defCh, mCap.antennaMask);
+    mMac.setTiming(true, 9);
 
     err = mMcu.uniAddDev(0, 0, 0, mCap.macAddr, true);
     if (err != kOk) {
@@ -241,7 +281,7 @@ int MT7902Device::startRadio() {
         return err;
     }
 
-    // Enable MT7902 RX filter + clear beacon filter both via MCU (FIF_BIT_CLR) and RMAC RFCR
+    // Enable MT7902 RX filter + clear beacon/probe-response filter both via MCU and RMAC RFCR
     (void)mMcu.setRxFilter(MT7902_FILTER_ENABLE | MT7902_FILTER_OTHER_BSS, 0, 0);
     (void)mMcu.setRxFilter(0, MTK_BIT(1), MT_WF_RFCR_DROP_OTHER_BEACON);
     mBus.clear(MT_WF_RFCR(0),
@@ -344,12 +384,13 @@ void MT7902Device::handleRxPacket(const uint8_t *buf, size_t len) {
 }
 
 void MT7902Device::drainRxData() {
-    uint8_t buf[MT7902_RX_BUF_SIZE];
+    if (!mRxDataScratch)
+        return;
     size_t len = 0;
     for (int i = 0; i < 512; ++i) {
-        if (mDma.rxDequeue(kRxData, buf, sizeof(buf), len) != kOk)
+        if (mDma.rxDequeue(kRxData, mRxDataScratch, MT7902_RX_BUF_SIZE, len) != kOk)
             break;
-        handleRxPacket(buf, len);
+        handleRxPacket(mRxDataScratch, len);
     }
 }
 
@@ -358,6 +399,11 @@ void MT7902Device::serviceInterrupt() {
         return;
 
     IrqStatus st = mDma.handleInterrupt();
+    if (st.mcuStopDma) {
+        MTK_ERR("MT7902 MCU signaled STOP_DMA; triggering hardware recovery");
+        (void)resetHardware();
+        return;
+    }
     if (st.txDone) {
         mDma.txCleanup(kTxMcuWm);
         mDma.txCleanup(kTxFwdl);
@@ -402,12 +448,7 @@ int MT7902Device::send80211Frame(const uint8_t *frame, size_t len, uint16_t wcid
 }
 
 void MT7902Device::onScanComplete(uint8_t seqNum) {
-    uint32_t rx2Dma = mBus.rr(MT_RX_DATA_RING_BASE + MT_RING_REG_DMA_IDX);
-    uint32_t rx0Dma = mBus.rr(MT_RX_EVENT_RING_BASE + MT_RING_REG_DMA_IDX);
-    uint32_t rfcr0 = mBus.rr(MT_WF_RFCR(0));
     drainRxData();
-    MTK_LOG("HW scan done seq=%u rx2_dma=%u rx0_dma=%u rx_ok=%u rx_fail=%u rfcr0=0x%08x",
-            seqNum, rx2Dma, rx0Dma, mRxNormalCount, mRxParseFailCount, rfcr0);
     if (mRxCb)
         mRxCb->onScanComplete(seqNum);
 }
