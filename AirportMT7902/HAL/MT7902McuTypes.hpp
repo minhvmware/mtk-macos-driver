@@ -265,11 +265,11 @@ struct __attribute__((packed)) Mt76Connac2FwRegion {
 };
 static_assert(sizeof(Mt76Connac2FwRegion) == 40, "Connac2 FW region must be 40 bytes");
 
-// NIC Capability TLV IDs
+// NIC Capability TLV IDs (matching Linux mt76_connac_mcu.h)
 enum NicCapTlv : uint32_t {
     MT_NIC_CAP_MAC_ADDR = 7,
     MT_NIC_CAP_PHY = 8,
-    MT_NIC_CAP_6G = 25,
+    MT_NIC_CAP_6G = 0x18,
     MT_NIC_CAP_CHIP_CAP = 0x20,
 };
 

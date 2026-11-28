@@ -1,23 +1,29 @@
-# MediaTek MT7902 Native macOS Driver (`AirportMT7902` + `MT7902BluetoothFirmware`)
+# MediaTek MT7902 Native macOS Driver (`AirportMT7902` + `MT7902BluetoothFirmware` + `MT7902BluetoothPatcher`)
 
-Bộ driver **Native macOS Kernel Extension (`.kext`)** viết bằng C++17 cho card mạng không dây **MediaTek MT7902 (Filogic 310 — Wi-Fi 6E PCIe + Bluetooth 5.2 USB)**, tích hợp trực tiếp vào menu Wi-Fi gốc của macOS (không cần app phụ kiểu HeliPort và không cần OCLP root patch trên Sequoia/Tahoe).
+Bộ driver **Native macOS Kernel Extension (`.kext`)** viết bằng C++17 cho card mạng không dây **MediaTek MT7902 (Filogic 310 — Wi-Fi 6E PCIe + Bluetooth 5.2 USB)**, tích hợp trực tiếp vào menu Wi-Fi & Bluetooth gốc của macOS (không cần app phụ kiểu HeliPort và không cần OCLP root patch trên Sequoia/Tahoe).
 
-## 1. Phần cứng hỗ trợ (đã đối chiếu trực tiếp trên máy của bạn)
+## 1. Phần cứng hỗ trợ & hiệu năng đã kiểm chứng thực tế
 
 | Thành phần | Giao tiếp | ID thiết bị | Kext đảm nhiệm |
 | :--- | :--- | :--- | :--- |
-| **Wi-Fi 6E (2.4 / 5 / 6 GHz, 802.11ax)** | PCIe (`0000:02:00.0`) | `14c3:7902` (`IOPCIMatch = 0x790214c3`, AzureWave `5520` & OEMs) | `AirportMT7902.kext` |
-| **Bluetooth 5.2 (WMT 79xx)** | USB (`Bus 001`) | `13d3:3579` (IMC/AzureWave), `13d3:3575`, `13d3:3584`, `13d3:3596`, `0489:e0f2`, `0489:e0f5`, `0e8d:7902` | `MT7902BluetoothFirmware.kext` (+ `BlueToolFixup.kext` trên macOS 12+) |
+| **Wi-Fi 6 / 6E (2.4 / 5 GHz 80 MHz, 802.11ax 1x1)** | PCIe (`0000:02:00.0`) | `14c3:7902` (`IOPCIMatch = 0x790214c3`, AzureWave `1a3b:5520` & OEMs) | `AirportMT7902.kext` |
+| **Bluetooth 5.2 (WMT 79xx + BLE Scan Fix)** | USB (`Bus 001`) | `13d3:3579` (IMC/AzureWave), `13d3:3575`, `13d3:3584`, `13d3:3596`, `0489:e0f2`, `0489:e0f5`, `0e8d:7902` | `MT7902BluetoothFirmware.kext` + `MT7902BluetoothPatcher.kext` + `BlueToolFixup.kext` |
+
+- **Hiệu năng đã đo thực tế trên macOS 15.8.3 Sequoia (VFIO passthrough `14c3:7902` trên router 5 GHz 80 MHz Wi-Fi 6)**:
+  - `networkQuality -s -v` (đa luồng): **Downlink `213.1 Mbps` · Uplink `275.0 Mbps`** (`0 Ierrs / 0 Oerrs` sau >1.3 GB truyền nhận).
+  - Tải 1 luồng HTTPS 25 MB: **20.0 – 20.6 MB/s (~165 Mbps)**, ngang chuẩn Linux native `mt7921e` trên cùng phần cứng.
+  - Hỗ trợ đầy đủ RX A-MPDU Reorder Buffer (A-MSDU, BAR, 12-bit wraparound, timeout), TX Originator Block Ack (`ADDBA`) + `MT_TXD7_HW_AMSDU`, NAPI-style IRQ masking, zero-copy batched DMA (1024-entry TX/RX ring), zero-drop TX backpressure và XNU `kInputOptionQueuePacket`/`flushInputQueue()`.
 
 ## 2. Kiến trúc đa phiên bản macOS Native
 
-Dự án tạo ra **5 scheme Xcode** (build ra `.kext` riêng cho từng ABI kernel của Apple):
+Dự án tạo ra **6 scheme Xcode** (build ra `.kext` riêng cho từng ABI kernel của Apple):
 
 1. **`AirportMT7902-Ventura`** (`__MAC_13_0`): Kế thừa `IO80211Controller` + `IO80211Interface` truyền thống (Monterey 12 / Ventura 13).
 2. **`AirportMT7902-Sonoma`** (`__MAC_14_4`, `IO80211FAMILY_V2`): Kế thừa `IO80211ControllerV2` + `IO80211SkywalkInterface` cho macOS 14 Sonoma.
 3. **`AirportMT7902-Sequoia`** (`__MAC_15_2`, `IO80211FAMILY_V2` + `AIRPORT_WCL`): Hỗ trợ kiến trúc **Native WCL (`IO80211InfraProtocol` / `IO80211InfraInterface`, `BeaconMetadata` `0x40` byte)** trên macOS 15.2+ **không cần OCLP**.
 4. **`AirportMT7902-Tahoe`** (`__MAC_26_0`, `IO80211FAMILY_V2` + `AIRPORT_WCL`): Hỗ trợ kiến trúc **Native WCL macOS 26 Tahoe (`BeaconMetadata` `0x44` byte)** **không cần OCLP**.
 5. **`MT7902BluetoothFirmware`**: Nạp firmware `BT_RAM_CODE_MT7902_1_1_hdr.bin` qua giao thức USB Control WMT (`0xfc6f` / `0xe4`), reset endpoint `0x74011890`, bật `BTMTK_WMT_FUNC_CTRL` rồi nhường thiết bị cho stack Bluetooth gốc của macOS.
+6. **`MT7902BluetoothPatcher`** (Lilu plugin): Tự động tiêm `HCI_LE_Set_Random_Address` trước lệnh LE Scan và vá kiểm tra VM cho `bluetoothd`/`BlueTool` để quét & ghép đôi thiết bị Bluetooth BLE ổn định trên macOS 12–26.
 
 ### Các quirk phần cứng riêng của chip MT7902 đã xử lý trong HAL
 - **TX Queue MCU-WM dùng Ring `15`** (`MT7902_TXQ_MCU_WM = 15`, khác với MT7921 dùng Ring `17`).

@@ -526,7 +526,8 @@ IOReturn AirportMT7902SkywalkInterface::getSUPPORTED_CHANNELS(apple80211_sup_cha
     ch->version = APPLE80211_VERSION;
     const auto &cap = mSta->device().capability();
     mt7902::ChannelInfoEntry list[APPLE80211_MAX_CHANNELS];
-    size_t n = mt7902::getSupportedChannels(cap.has2Ghz, cap.has5Ghz, cap.has6Ghz,
+    // Expose 2.4/5 GHz until WPA3-SAE + PMF (required by 6 GHz) is implemented
+    size_t n = mt7902::getSupportedChannels(cap.has2Ghz, cap.has5Ghz, false,
                                             list, APPLE80211_MAX_CHANNELS);
     ch->num_channels = static_cast<uint32_t>(n);
     for (size_t i = 0; i < n; ++i) {
