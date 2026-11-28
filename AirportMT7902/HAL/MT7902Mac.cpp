@@ -200,6 +200,8 @@ void MT7902Mac::buildTxwi(Mt7902Txwi &out, const uint8_t *frame, size_t frameLen
                fieldPrep(MT_TXD2_SUB_TYPE, fcStype);
         dw7 |= fieldPrep(MT_TXD7_TYPE, fcType) |
                fieldPrep(MT_TXD7_SUB_TYPE, fcStype);
+        if (opts.hwAmsdu && opts.qos && !opts.fixedRate && opts.pid == 0)
+            dw7 |= MT_TXD7_HW_AMSDU;
     } else {
         uint16_t fc = (frameLen >= 2) ? getLe16(frame) : 0;
         uint8_t fcType = (fc >> 2) & 0x3U;
@@ -239,7 +241,8 @@ void MT7902Mac::buildTxwi(Mt7902Txwi &out, const uint8_t *frame, size_t frameLen
     putLe16(&out.txp.ptr[0].len0, len0);
 }
 
-int MT7902Mac::transmitFrame(const uint8_t *frame, size_t frameLen, const TxPacketOptions &opts) {
+int MT7902Mac::transmitFrame(const uint8_t *frame, size_t frameLen, const TxPacketOptions &opts,
+                             bool kick) {
     if (!frame || frameLen < kEthHdrLen || frameLen > 2048)
         return kErrInvalid;
 
@@ -259,14 +262,15 @@ int MT7902Mac::transmitFrame(const uint8_t *frame, size_t frameLen, const TxPack
     }
 
     memcpy(slotRef.dmaBuf.virt, frame, frameLen);
-    mBus.syncDmaForDevice(slotRef.dmaBuf);
+    if (kick)
+        mBus.syncDmaForDevice(slotRef.dmaBuf);
 
     Mt7902Txwi txwi;
     buildTxwi(txwi, frame, frameLen, slotRef.dmaBuf.phys,
               static_cast<uint16_t>(tokenId), opts);
 
     // Submit 64-byte TXWI in desc.buf0 (hardware fetches payload via TXP.ptr[0].buf0)
-    int err = mDma.txSubmitCopy(kTxBand0, &txwi, sizeof(txwi));
+    int err = mDma.txSubmitCopy(kTxBand0, &txwi, sizeof(txwi), kick);
     if (err != kOk) {
         TxTokenSlot slot;
         if (releaseToken(static_cast<uint16_t>(tokenId), slot) && slot.dmaBuf.virt)
@@ -360,17 +364,28 @@ bool MT7902Mac::parseRxDescriptor(const uint8_t *raw, size_t rawLen,
     out.icvError = (rxd1 & MT_RXD1_NORMAL_ICV_ERR) != 0;
     out.decrypted = fieldGet(MT_RXD1_NORMAL_SEC_MODE, rxd1) != 0 &&
                     (rxd1 & (MT_RXD1_NORMAL_CLM | MT_RXD1_NORMAL_CM)) == 0;
-    out.amsdu = fieldGet(MT_RXD4_NORMAL_PAYLOAD_FORMAT, rxd4) != 0;
+    uint32_t amsduInfo = fieldGet(MT_RXD4_NORMAL_PAYLOAD_FORMAT, rxd4);
+    out.amsdu = (amsduInfo != 0);
+    if (out.amsdu) {
+        out.firstAmsdu = (amsduInfo == MT_RXD4_FIRST_AMSDU_FRAME);
+        out.lastAmsdu = (amsduInfo == MT_RXD4_LAST_AMSDU_FRAME);
+    }
+    out.tid = static_cast<uint8_t>(fieldGet(MT_RXD2_NORMAL_TID, rxd2));
 
     uint32_t removePad = fieldGet(MT_RXD2_NORMAL_HDR_OFFSET, rxd2);
     size_t pos = 24; // 6 dwords base RXD
 
-    // Group 4 (MAC header info, 4 dwords)
+    // Group 4 (MAC header info, 4 dwords: matches Linux mt7921_mac_fill_rx)
     if (rxd1 & MT_RXD1_NORMAL_GROUP_4) {
         if (pos + 16 >= rawLen) return false;
+        uint32_t v0 = getLe32(raw + pos + 0);
         uint32_t v2 = getLe32(raw + pos + 8);
-        out.seqNo = static_cast<uint16_t>((v2 & 0xffffU) >> 4);
-        out.tid = static_cast<uint8_t>((v2 >> 16) & 0xfU);
+        out.hasGroup4 = true;
+        out.frameCtrl = static_cast<uint16_t>(fieldGet(MT_RXD6_FRAME_CONTROL, v0));
+        uint16_t seqCtrl = static_cast<uint16_t>(fieldGet(MT_RXD8_SEQ_CTRL, v2));
+        out.qosCtrl = static_cast<uint16_t>(fieldGet(MT_RXD8_QOS_CTL, v2));
+        out.seqNo = static_cast<uint16_t>((seqCtrl >> 4) & 0x0fffU);
+        out.tid = static_cast<uint8_t>(out.qosCtrl & 0x0fU);
         pos += 16;
     }
 
@@ -470,6 +485,18 @@ bool MT7902Mac::parseRxDescriptor(const uint8_t *raw, size_t rawLen,
 
     out.payloadOffset = static_cast<uint32_t>(hdrGap);
     out.payloadLen = static_cast<uint32_t>(rawLen - hdrGap);
+
+    // Match Linux mt7921_mac_fill_rx() aggregation eligibility:
+    // unicast QoS Data (excluding QoS Null and No-Ack policy) with valid Group 4 seq/qos info.
+    if (out.is8023 && out.hasGroup4 && out.unicast) {
+        uint8_t fcType = static_cast<uint8_t>((out.frameCtrl >> 2) & 0x3U);
+        uint8_t fcStype = static_cast<uint8_t>((out.frameCtrl >> 4) & 0xfU);
+        bool isQosData = (fcType == 2U) && ((fcStype & 0x8U) != 0U);
+        bool isQosNull = (fcType == 2U) && (fcStype == 0xcU);
+        uint8_t ackPolicy = static_cast<uint8_t>((out.qosCtrl >> 5) & 0x3U);
+        out.aggr = isQosData && !isQosNull && (ackPolicy != 1U /* NOACK */);
+    }
+
     out.valid = true;
     return true;
 }

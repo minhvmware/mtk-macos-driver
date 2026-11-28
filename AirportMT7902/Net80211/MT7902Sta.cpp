@@ -289,6 +289,72 @@ size_t MT7902Sta::buildDeauthFrame(const uint8_t staMac[6], const uint8_t bssid[
     return 26;
 }
 
+size_t MT7902Sta::buildAddbaReqFrame(const uint8_t staMac[6], const uint8_t bssid[6],
+                                     uint16_t seqCtrl, uint8_t dialogToken,
+                                     uint8_t tid, uint16_t winSize, bool amsdu, uint16_t ssn,
+                                     uint8_t *out, size_t outCap) {
+    if (!out || outCap < 33)
+        return 0;
+    memset(out, 0, 33);
+    putLe16(out + 0, 0x00d0); // Management Action
+    putLe16(out + 2, 0x013a);
+    memcpy(out + 4, bssid, 6);
+    memcpy(out + 10, staMac, 6);
+    memcpy(out + 16, bssid, 6);
+    putLe16(out + 22, seqCtrl);
+    out[24] = 3; // Category: Block Ack
+    out[25] = 0; // Action: ADDBA Request
+    out[26] = dialogToken ? dialogToken : 1;
+    uint16_t baParams = static_cast<uint16_t>(
+        (amsdu ? 1U : 0U) | (1U << 1) | ((tid & 0xfU) << 2) | ((winSize & 0x3ffU) << 6));
+    putLe16(out + 27, baParams);
+    putLe16(out + 29, 0); // BA timeout = 0 (disabled)
+    putLe16(out + 31, static_cast<uint16_t>((ssn & 0x0fffU) << 4));
+    return 33;
+}
+
+void MT7902Sta::deliverReorderedFrame(const uint8_t *ethFrame, size_t len, void *ctx) {
+    auto *self = static_cast<MT7902Sta *>(ctx);
+    if (self && self->mListener)
+        self->mListener->onDataFrameReceived(ethFrame, len);
+}
+
+int MT7902Sta::initiateTxAddba(uint8_t tid) {
+    if (!mPowerOn || mLink.state != kStaRun || !mLink.qos || tid >= 8)
+        return kErrIO;
+    mTxBaDialogToken = static_cast<uint8_t>(mTxBaDialogToken + 1U);
+    if (mTxBaDialogToken == 0)
+        mTxBaDialogToken = 1;
+    mTxBaAttempts++;
+    mTxBaLastReqMs = mDev.bus().nowMs();
+
+    uint8_t req[33] = {};
+    size_t reqLen = buildAddbaReqFrame(mDev.capability().macAddr, mLink.bssid,
+                                       nextMgmtSeq(), mTxBaDialogToken,
+                                       tid, 64, true, 0, req, sizeof(req));
+    bool fiveGhz = (mLink.band != kBand2GHz);
+    int err = mDev.send80211Frame(req, reqLen, mLink.apWcid, false, false, fiveGhz);
+    MTK_LOG("Tx ADDBA Req: tid=%u win=64 amsdu=1 tok=%u -> err=%d",
+            tid, mTxBaDialogToken, err);
+    return err;
+}
+
+void MT7902Sta::pollRxReorderTimeouts() {
+    if (!mRxReorder.hasPendingFrames())
+        return;
+    mRxReorder.checkTimeouts(mDev.bus().nowMs(), &MT7902Sta::deliverReorderedFrame, this);
+}
+
+void MT7902Sta::pollPeriodic() {
+    pollRxReorderTimeouts();
+    if (mPowerOn && mLink.state == kStaRun && mLink.qos &&
+        !(mTxBaActiveMask & 1U) && mTxBaAttempts > 0 && mTxBaAttempts < 3) {
+        uint64_t nowMs = mDev.bus().nowMs();
+        if (nowMs >= mTxBaLastReqMs + 2000ULL)
+            (void)initiateTxAddba(0);
+    }
+}
+
 int MT7902Sta::associate(const AssocRequestParams &req) {
     if (!mPowerOn)
         return kErrIO;
@@ -307,8 +373,13 @@ int MT7902Sta::associate(const AssocRequestParams &req) {
         (void)disassociate(8);
 
     mWpa2.reset();
+    mRxReorder.resetAll();
     mAuthRetryCount = 0;
     mBaLoggedMask = 0;
+    mTxBaActiveMask = 0;
+    mTxBaAmsduMask = 0;
+    mTxBaAttempts = 0;
+    mTxBaLastReqMs = 0;
     mLink = {};
     mLink.authLower = req.authLower;
     mLink.authUpper = req.authUpper;
@@ -500,6 +571,10 @@ int MT7902Sta::disassociate(uint16_t reasonCode) {
 
     // Transition software state BEFORE MCU cleanup so re-entrant RX events cannot re-enter teardown
     mWpa2.reset();
+    mRxReorder.resetAll();
+    mTxBaActiveMask = 0;
+    mTxBaAmsduMask = 0;
+    mTxBaAttempts = 0;
     mLink.state = kStaInit;
     mLink.aid = 0;
     mLink.ptkInstalled = false;
@@ -551,7 +626,7 @@ int MT7902Sta::installCipherKey(uint8_t cipher, uint8_t keyIdx, const uint8_t *k
     return kOk;
 }
 
-int MT7902Sta::outputEthernetPacket(const uint8_t *ethFrame, size_t len) {
+int MT7902Sta::outputEthernetPacket(const uint8_t *ethFrame, size_t len, bool kick) {
     if (!mPowerOn || !ethFrame || len < kEthHdrLen)
         return kErrInvalid;
 
@@ -563,8 +638,17 @@ int MT7902Sta::outputEthernetPacket(const uint8_t *ethFrame, size_t len) {
     if (!isEapol && mLink.state != kStaRun)
         return kErrIO;
 
+    bool unicast = (ethFrame[0] & 0x01U) == 0;
+    if (!isEapol && unicast && mLink.qos && !(mTxBaActiveMask & 1U) && mTxBaAttempts < 3) {
+        uint64_t nowMs = mDev.bus().nowMs();
+        if (mTxBaAttempts == 0 || nowMs >= mTxBaLastReqMs + 2000ULL) {
+            (void)initiateTxAddba(0);
+        }
+    }
+
     bool protect = mLink.encrypted && mLink.ptkInstalled && !isEapol;
-    return mDev.sendEthernetFrame(ethFrame, len, mLink.apWcid, mLink.qos, protect);
+    bool hwAmsdu = !isEapol && unicast && mLink.qos && ((mTxBaAmsduMask & 1U) != 0);
+    return mDev.sendEthernetFrame(ethFrame, len, mLink.apWcid, mLink.qos, protect, hwAmsdu, kick);
 }
 
 void MT7902Sta::handleAuthResp(const uint8_t *frame, size_t len) {
@@ -739,6 +823,10 @@ void MT7902Sta::handleDeauthOrDisassoc(const uint8_t *frame, size_t len, bool is
     bool wasLinked = (mLink.state >= kStaAssociated);
     // Clear state BEFORE MCU teardown so duplicate Deauth frames cannot re-enter cleanup
     mWpa2.reset();
+    mRxReorder.resetAll();
+    mTxBaActiveMask = 0;
+    mTxBaAmsduMask = 0;
+    mTxBaAttempts = 0;
     mLink.state = kStaInit;
     mLink.aid = 0;
     mLink.ptkInstalled = false;
@@ -775,6 +863,9 @@ void MT7902Sta::handleActionFrame(const uint8_t *frame, size_t len) {
         uint16_t winSize = (reqWin == 0 || reqWin > 64) ? 64 : reqWin;
         uint16_t ssn = static_cast<uint16_t>((startSeq >> 4) & 0x0fffU);
 
+        // Start software IEEE 802.11 RX A-MPDU reorder buffer (matching Linux mt7921_ampdu_action)
+        (void)mRxReorder.startSession(tid, ssn, winSize, &MT7902Sta::deliverReorderedFrame, this);
+
         int baErr = mDev.mcu().uniSetBa(0, mLink.apWcid, mLink.bssid, tid, ssn, winSize, amsdu, true, false);
         uint8_t tidBit = static_cast<uint8_t>(1U << (tid & 0x7U));
         if ((mBaLoggedMask & tidBit) == 0) {
@@ -802,12 +893,43 @@ void MT7902Sta::handleActionFrame(const uint8_t *frame, size_t len) {
 
         bool fiveGhz = (mLink.band != kBand2GHz);
         (void)mDev.send80211Frame(resp, sizeof(resp), mLink.apWcid, false, false, fiveGhz);
+    } else if (action == 1 && len >= 33) { // ADDBA Response -> activate hardware TX Block Ack
+        uint16_t status = getLe16(frame + 27);
+        uint16_t baParams = getLe16(frame + 29);
+        bool amsdu = (baParams & 0x0001U) != 0;
+        uint8_t tid = static_cast<uint8_t>((baParams >> 2) & 0x0fU);
+        uint16_t reqWin = static_cast<uint16_t>((baParams >> 6) & 0x03ffU);
+        uint16_t winSize = (reqWin == 0 || reqWin > 64) ? 64 : reqWin;
+        if (status == 0 && tid < 8) {
+            int baErr = mDev.mcu().uniSetBa(0, mLink.apWcid, mLink.bssid, tid, 0, winSize,
+                                            amsdu, true, true /* tx */);
+            if (baErr == kOk) {
+                uint8_t tidBit = static_cast<uint8_t>(1U << tid);
+                mTxBaActiveMask |= tidBit;
+                if (amsdu)
+                    mTxBaAmsduMask |= tidBit;
+                else
+                    mTxBaAmsduMask &= static_cast<uint8_t>(~tidBit);
+            }
+            MTK_LOG("Rx ADDBA Resp OK: tid=%u win=%u amsdu=%d -> TX BA err=%d",
+                    tid, winSize, amsdu, baErr);
+        } else {
+            MTK_LOG("Rx ADDBA Resp declined: tid=%u status=%u", tid, status);
+        }
     } else if (action == 2 && len >= 30) { // DELBA
         uint16_t delbaParams = getLe16(frame + 26);
         uint8_t tid = static_cast<uint8_t>((delbaParams >> 12) & 0x0fU);
         bool initiator = ((delbaParams >> 11) & 0x1U) != 0;
         if (initiator) {
+            mRxReorder.stopSession(tid, &MT7902Sta::deliverReorderedFrame, this);
             (void)mDev.mcu().uniSetBa(0, mLink.apWcid, mLink.bssid, tid, 0, 0, false, false, false);
+        } else {
+            if (tid < 8) {
+                uint8_t tidBit = static_cast<uint8_t>(1U << tid);
+                mTxBaActiveMask &= static_cast<uint8_t>(~tidBit);
+                mTxBaAmsduMask &= static_cast<uint8_t>(~tidBit);
+            }
+            (void)mDev.mcu().uniSetBa(0, mLink.apWcid, mLink.bssid, tid, 0, 0, false, false, true);
         }
     }
 }
@@ -879,6 +1001,17 @@ void MT7902Sta::handleData80211Frame(const uint8_t *frame, size_t len) {
         mListener->onDataFrameReceived(eth, kEthHdrLen + payloadLen);
 }
 
+void MT7902Sta::onRxBatchBegin() {
+    if (mListener)
+        mListener->onRxBatchBegin();
+}
+
+void MT7902Sta::onRxBatchComplete() {
+    pollRxReorderTimeouts();
+    if (mListener)
+        mListener->onRxBatchComplete();
+}
+
 void MT7902Sta::onRxEthernetFrame(const uint8_t *ethFrame, size_t len, const ParsedRxFrame &meta) {
     if (meta.rssi < 0 && meta.rssi > -120) {
         mLink.rssi = meta.rssi;
@@ -894,17 +1027,37 @@ void MT7902Sta::onRxEthernetFrame(const uint8_t *ethFrame, size_t len, const Par
     }
     if (handleInboundEapol(ethFrame, len))
         return;
+
+    if (meta.aggr && len >= kEthHdrLen && (ethFrame[0] & 0x01U) == 0 &&
+        mRxReorder.isSessionActive(meta.tid)) {
+        mRxReorder.processFrame(ethFrame, len, meta, mDev.bus().nowMs(),
+                                &MT7902Sta::deliverReorderedFrame, this);
+        return;
+    }
+
     if (mListener)
         mListener->onDataFrameReceived(ethFrame, len);
 }
 
 void MT7902Sta::onRx80211Frame(const uint8_t *dot11Frame, size_t len, const ParsedRxFrame &meta) {
-    if (!dot11Frame || len < 24)
+    if (!dot11Frame || len < 20)
         return;
 
     uint16_t fc = getLe16(dot11Frame);
     uint8_t type = (fc >> 2) & 0x3U;
     uint8_t stype = (fc >> 4) & 0xfU;
+
+    if (type == 1 && stype == 8) { // Control: Block Ack Request (BAR)
+        if (mLink.state >= kStaAssociated && memcmp(dot11Frame + 10, mLink.bssid, 6) == 0) {
+            uint16_t barCtrl = getLe16(dot11Frame + 16);
+            uint8_t tid = static_cast<uint8_t>((barCtrl >> 12) & 0x0fU);
+            uint16_t ssn = static_cast<uint16_t>((getLe16(dot11Frame + 18) >> 4) & 0x0fffU);
+            mRxReorder.handleBar(tid, ssn, &MT7902Sta::deliverReorderedFrame, this);
+        }
+        return;
+    }
+    if (len < 24)
+        return;
 
     if (type == 0) { // Management
         switch (stype) {

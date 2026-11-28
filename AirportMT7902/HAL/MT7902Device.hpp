@@ -18,6 +18,8 @@ namespace mt7902 {
 class IMT7902RxCallback {
 public:
     virtual ~IMT7902RxCallback() = default;
+    virtual void onRxBatchBegin() {}
+    virtual void onRxBatchComplete() {}
     virtual void onRxEthernetFrame(const uint8_t *ethFrame, size_t len, const ParsedRxFrame &meta) = 0;
     virtual void onRx80211Frame(const uint8_t *dot11Frame, size_t len, const ParsedRxFrame &meta) = 0;
     virtual void onScanComplete(uint8_t seqNum) = 0;
@@ -51,7 +53,9 @@ public:
     void serviceInterrupt();
 
     // Packet transmission
-    int sendEthernetFrame(const uint8_t *frame, size_t len, uint16_t wcid, bool qos, bool protect);
+    int sendEthernetFrame(const uint8_t *frame, size_t len, uint16_t wcid, bool qos, bool protect,
+                          bool hwAmsdu = false, bool kick = true);
+    void flushTxData() { mDma.txKick(kTxBand0); }
     int send80211Frame(const uint8_t *frame, size_t len, uint16_t wcid, bool protect,
                        bool noAck = false, bool fiveGhz = false);
 
@@ -79,7 +83,7 @@ public:
 private:
     int driverOwnBand0();
     void handleRxPacket(const uint8_t *buf, size_t len);
-    void drainRxData();
+    uint32_t drainRxData();
 
     IMT7902Bus &mBus;
     MT7902Dma mDma;
@@ -94,6 +98,7 @@ private:
     bool mInitialized = false;
     bool mRadioRunning = false;
     bool mSuspended = false;
+    bool mDrainingRxData = false;
     int32_t mLastRssi = -65;
     uint32_t mRxNormalCount = 0;
     uint32_t mRxParseFailCount = 0;

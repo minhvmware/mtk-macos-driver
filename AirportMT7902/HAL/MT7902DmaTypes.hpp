@@ -207,6 +207,14 @@ static constexpr uint32_t MT_RXD3_NORMAL_U2M = MTK_BIT(0);
 
 // RXD DW4
 static constexpr uint32_t MT_RXD4_NORMAL_PAYLOAD_FORMAT = genmask32(1, 0);
+static constexpr uint32_t MT_RXD4_FIRST_AMSDU_FRAME = 3U; // GENMASK(1, 0)
+static constexpr uint32_t MT_RXD4_MID_AMSDU_FRAME = 2U;   // BIT(1)
+static constexpr uint32_t MT_RXD4_LAST_AMSDU_FRAME = 1U;  // BIT(0)
+
+// RXD Group 4 (MAC header info)
+static constexpr uint32_t MT_RXD6_FRAME_CONTROL = genmask32(15, 0);
+static constexpr uint32_t MT_RXD8_SEQ_CTRL = genmask32(15, 0);
+static constexpr uint32_t MT_RXD8_QOS_CTL = genmask32(31, 16);
 
 // P-RXV DW0 / DW1 (Group 3)
 static constexpr uint32_t MT_PRXV_TX_RATE = genmask32(6, 0);

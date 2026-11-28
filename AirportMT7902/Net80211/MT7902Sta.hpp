@@ -9,6 +9,7 @@
 #include "../HAL/MT7902Device.hpp"
 #include "MT7902BeaconParser.hpp"
 #include "MT7902Channels.hpp"
+#include "MT7902RxReorder.hpp"
 #include "MT7902Wpa2.hpp"
 
 namespace mt7902 {
@@ -76,6 +77,8 @@ struct StaLinkInfo {
 class IStaEventListener {
 public:
     virtual ~IStaEventListener() = default;
+    virtual void onRxBatchBegin() {}
+    virtual void onRxBatchComplete() {}
     virtual void onDataFrameReceived(const uint8_t *ethFrame, size_t len) = 0;
     virtual void onScanFinished() = 0;
     virtual void onBssDiscovered(const ScannedBss &bss) = 0;
@@ -114,7 +117,16 @@ public:
                          size_t keyLen, bool pairwise, bool setKey);
 
     // Outbound data path (Ethernet 802.3 frames from macOS network stack, including EAPOL 0x888E)
-    int outputEthernetPacket(const uint8_t *ethFrame, size_t len);
+    int outputEthernetPacket(const uint8_t *ethFrame, size_t len, bool kick = true);
+    void flushTx() { mDev.flushTxData(); }
+
+    // Periodic & RX reorder timeout polling
+    void pollRxReorderTimeouts();
+    void pollPeriodic();
+    bool hasPendingReorderFrames() const { return mRxReorder.hasPendingFrames(); }
+    const RxReorderStats &rxReorderStats() const { return mRxReorder.stats(); }
+    uint8_t txBaActiveMask() const { return mTxBaActiveMask; }
+    int initiateTxAddba(uint8_t tid = 0);
 
     // Raw 802.11 management frame builders (static, directly unit-testable)
     static size_t buildAuthReqFrame(const uint8_t staMac[6], const uint8_t bssid[6],
@@ -130,8 +142,14 @@ public:
     static size_t buildDeauthFrame(const uint8_t staMac[6], const uint8_t bssid[6],
                                    uint16_t seqNum, uint16_t reasonCode,
                                    uint8_t *out, size_t outCap);
+    static size_t buildAddbaReqFrame(const uint8_t staMac[6], const uint8_t bssid[6],
+                                     uint16_t seqCtrl, uint8_t dialogToken,
+                                     uint8_t tid, uint16_t winSize, bool amsdu, uint16_t ssn,
+                                     uint8_t *out, size_t outCap);
 
     // IMT7902RxCallback overrides
+    void onRxBatchBegin() override;
+    void onRxBatchComplete() override;
     void onRxEthernetFrame(const uint8_t *ethFrame, size_t len, const ParsedRxFrame &meta) override;
     void onRx80211Frame(const uint8_t *dot11Frame, size_t len, const ParsedRxFrame &meta) override;
     void onScanComplete(uint8_t seqNum) override;
@@ -144,6 +162,7 @@ public:
     MT7902Device &device() { return mDev; }
 
 private:
+    static void deliverReorderedFrame(const uint8_t *ethFrame, size_t len, void *ctx);
     void cleanupHardwareSession(bool sendDeauth, uint16_t reasonCode);
     void restoreOperatingChannel();
     void handleAuthResp(const uint8_t *frame, size_t len);
@@ -157,6 +176,7 @@ private:
     MT7902Device &mDev;
     IStaEventListener *mListener = nullptr;
     MT7902ScanCache mScanCache;
+    MT7902RxReorder mRxReorder;
     StaLinkInfo mLink;
     Wpa2Session mWpa2;
     char mCountryCode[3] = "US";
@@ -167,6 +187,11 @@ private:
     bool mCleaningUp = false;
     uint8_t mAuthRetryCount = 0;
     uint8_t mBaLoggedMask = 0;
+    uint8_t mTxBaActiveMask = 0;
+    uint8_t mTxBaAmsduMask = 0;
+    uint8_t mTxBaDialogToken = 0;
+    uint8_t mTxBaAttempts = 0;
+    uint64_t mTxBaLastReqMs = 0;
     uint16_t mMgmtSeq = 0;
 };
 

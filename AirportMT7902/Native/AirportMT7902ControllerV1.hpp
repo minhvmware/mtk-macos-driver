@@ -65,6 +65,8 @@ public:
     SInt32 monitorModeSetEnabled(IO80211Interface *interface, bool enabled, UInt32 dlt) override;
 
     // IStaEventListener callbacks (bridges MT7902Sta -> IO80211Interface::postMessage)
+    void onRxBatchBegin() override;
+    void onRxBatchComplete() override;
     void onDataFrameReceived(const uint8_t *ethFrame, size_t len) override;
     void onScanFinished() override;
     void onBssDiscovered(const mt7902::ScannedBss &bss) override;
@@ -76,6 +78,7 @@ public:
 private:
     static void interruptOccurred(OSObject *owner, IOInterruptEventSource *src, int count);
     static void watchdogFired(OSObject *owner, IOTimerEventSource *timer);
+    static void reorderTimerFired(OSObject *owner, IOTimerEventSource *timer);
     bool createMediumTables(const IONetworkMedium **primary);
     void releaseResources();
 
@@ -93,6 +96,7 @@ private:
     IOCommandGate *mCommandGate = nullptr;
     IOInterruptEventSource *mInterruptSrc = nullptr;
     IOTimerEventSource *mWatchdogTimer = nullptr;
+    IOTimerEventSource *mReorderTimer = nullptr;
     AirportMT7902Interface *mNetIf = nullptr;
     IONetworkStats *mNetStats = nullptr;
     OSDictionary *mMediumDict = nullptr;
@@ -104,6 +108,9 @@ private:
     apple80211_scan_result mScanResultScratch = {};
     uint8_t mScanIeScratch[mt7902::kMaxRawIeLen] = {};
     uint32_t mPmState = 1;
+    bool mInRxBatch = false;
+    bool mReorderTimerArmed = false;
+    uint32_t mPendingInputPackets = 0;
 };
 
 #endif // KERNEL && !IO80211FAMILY_V2

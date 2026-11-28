@@ -33,6 +33,7 @@ struct TxPacketOptions {
     bool protect = false;
     bool noAck = false;
     bool multicast = false;
+    bool hwAmsdu = false;
     bool fixedRate = false;
     uint16_t fixedRateVal = 0;
     uint8_t pid = 0;
@@ -41,14 +42,20 @@ struct TxPacketOptions {
 struct ParsedRxFrame {
     bool valid = false;
     bool rateValid = false;
+    bool hasGroup4 = false;
     bool is8023 = false;      // HW header-translated Ethernet frame
     bool decrypted = false;
     bool fcsError = false;
     bool micError = false;
     bool icvError = false;
     bool amsdu = false;
+    bool firstAmsdu = false;
+    bool lastAmsdu = false;
+    bool aggr = false;        // Eligible for IEEE 802.11 RX A-MPDU BA reorder
     bool unicast = false;
     uint16_t wlanIdx = 0;
+    uint16_t frameCtrl = 0;
+    uint16_t qosCtrl = 0;
     uint8_t chFreq = 0;
     uint8_t tid = 0;
     uint16_t seqNo = 0;
@@ -99,8 +106,9 @@ public:
     static bool parseRxDescriptor(const uint8_t *raw, size_t rawLen,
                                   uint8_t antennaMask, ParsedRxFrame &out);
 
-    // Transmit a frame through WFDMA0 TX Ring 0
-    int transmitFrame(const uint8_t *frame, size_t frameLen, const TxPacketOptions &opts);
+    // Transmit a frame through WFDMA0 TX Ring 0 (set kick=false when batching, then call dma.txKick)
+    int transmitFrame(const uint8_t *frame, size_t frameLen, const TxPacketOptions &opts,
+                      bool kick = true);
 
     // Handle PKT_TYPE_TXRX_NOTIFY from RX Ring 0 (frees tokens & DMA buffers)
     uint32_t handleTxFree(const uint8_t *data, size_t len,

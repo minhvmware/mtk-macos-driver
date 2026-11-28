@@ -139,11 +139,14 @@ public:
         const uint32_t tx16Cpu = MT_TX_RING_BASE + MT7902_TXQ_FWDL * MT_RING_STRIDE + MT_RING_REG_CPU_IDX;
 
         if (barOffset == tx0Cpu) {
+            tx0DoorbellWrites++;
             processTxRing(MT_TX_RING_BASE + MT7902_TXQ_BAND0 * MT_RING_STRIDE, MT7902_TXQ_BAND0);
         } else if (barOffset == tx15Cpu) {
             processTxRing(MT_TX_RING_BASE + MT7902_TXQ_MCU_WM * MT_RING_STRIDE, MT7902_TXQ_MCU_WM);
         } else if (barOffset == tx16Cpu) {
             processTxRing(MT_TX_RING_BASE + MT7902_TXQ_FWDL * MT_RING_STRIDE, MT7902_TXQ_FWDL);
+        } else if (barOffset == MT_RX_DATA_RING_BASE + MT_RING_REG_CPU_IDX) {
+            rx2RefillWrites++;
         }
     }
 
@@ -224,6 +227,10 @@ public:
     bool sawStaRecHeV2 = false;
     bool sawStaRecVht = false;
     bool sawStaRecBa = false;
+    bool sawStaRecBaTx = false;
+    bool sawWtblSmps = false;
+    uint32_t tx0DoorbellWrites = 0;
+    uint32_t rx2RefillWrites = 0;
 
 private:
     uint32_t readBarDirect(uint32_t off) const {
@@ -355,10 +362,30 @@ private:
                     TEST_CHECK(tlen >= 4 && off + tlen <= slen, "Malformed STA_REC TLV %u (len=%u)", ttag, tlen);
                     if (ttag == STA_REC_WTBL || ttag == STA_REC_KEY_V2 || ttag == STA_REC_BA)
                         sawValidCoreTlv = true;
+                    if (ttag == STA_REC_WTBL && tlen >= sizeof(McuTlvHdr) + sizeof(WtblReqHdr)) {
+                        const uint8_t *wp = sp + off + sizeof(McuTlvHdr);
+                        const auto *wh = reinterpret_cast<const WtblReqHdr *>(wp);
+                        uint16_t wn = getLe16(&wh->tlv_num);
+                        size_t woff = sizeof(McuTlvHdr) + sizeof(WtblReqHdr);
+                        for (uint16_t wt = 0; wt < wn && woff + 4 <= tlen; ++wt) {
+                            uint16_t wtag = getLe16(sp + off + woff);
+                            uint16_t wlen = getLe16(sp + off + woff + 2);
+                            if (wtag == WTBL_SMPS) sawWtblSmps = true;
+                            if (wlen < 4) break;
+                            woff += wlen;
+                        }
+                    }
                     if (ttag == STA_REC_HE) sawStaRecHe = true;
                     if (ttag == STA_REC_HE_V2) sawStaRecHeV2 = true;
                     if (ttag == STA_REC_VHT) sawStaRecVht = true;
-                    if (ttag == STA_REC_BA) sawStaRecBa = true;
+                    if (ttag == STA_REC_BA) {
+                        sawStaRecBa = true;
+                        if (tlen >= sizeof(StaRecBaTlv)) {
+                            const auto *ba = reinterpret_cast<const StaRecBaTlv *>(sp + off);
+                            if (ba->ba_type == MT_BA_TYPE_ORIGINATOR && ba->ba_en != 0)
+                                sawStaRecBaTx = true;
+                        }
+                    }
                     off += tlen;
                 }
                 TEST_CHECK(sawValidCoreTlv, "STA_REC_UPDATE missing STA_REC_WTBL/KEY_V2/BA");
@@ -1143,6 +1170,223 @@ static void test5Ghz80MhzBaPostScanAndReentrancy(MockMT7902AsicBus &bus, MT7902D
     dev.mac().releaseAllTokens();
 }
 
+static void inject8023QosRx2(MockMT7902AsicBus &bus, const uint8_t dstMac[6], const uint8_t srcMac[6],
+                             uint16_t seqNo, uint8_t tid, uint8_t amsduFmt, uint16_t tagId) {
+    uint8_t eth[60] = {};
+    memcpy(eth + 0, dstMac, 6);
+    memcpy(eth + 6, srcMac, 6);
+    putBe16(eth + 12, 0x0800);
+    putLe16(eth + 14, tagId);
+
+    // Base RXD (24B) + Group 4 (16B) + Group 3 (8B) + Ethernet payload
+    std::vector<uint8_t> raw(24 + 16 + 8 + sizeof(eth), 0);
+    putLe32(raw.data() + 0, fieldPrep(MT_RXD0_LENGTH, static_cast<uint32_t>(raw.size())) |
+                            fieldPrep(MT_RXD0_PKT_TYPE, PKT_TYPE_NORMAL));
+    putLe32(raw.data() + 4, fieldPrep(MT_RXD1_NORMAL_WLAN_IDX, 1) |
+                            MT_RXD1_NORMAL_GROUP_4 | MT_RXD1_NORMAL_GROUP_3 |
+                            fieldPrep(MT_RXD1_NORMAL_SEC_MODE, 5));
+    putLe32(raw.data() + 8, MT_RXD2_NORMAL_HDR_TRANS | fieldPrep(MT_RXD2_NORMAL_TID, tid));
+    putLe32(raw.data() + 12, fieldPrep(MT_RXD3_NORMAL_CH_FREQ, 116) |
+                             fieldPrep(MT_RXD3_NORMAL_ADDR_TYPE, MT_RXD3_NORMAL_U2M));
+    putLe32(raw.data() + 16, fieldPrep(MT_RXD4_NORMAL_PAYLOAD_FORMAT, amsduFmt));
+    // Group 4 at offset 24: v0 = FC (QoS Data = 0x0288 FromDS), v2 = seqCtrl | (qosCtrl << 16)
+    putLe32(raw.data() + 24, fieldPrep(MT_RXD6_FRAME_CONTROL, 0x0288U));
+    putLe32(raw.data() + 32, fieldPrep(MT_RXD8_SEQ_CTRL, static_cast<uint32_t>((seqNo & 0x0fffU) << 4)) |
+                             fieldPrep(MT_RXD8_QOS_CTL, static_cast<uint32_t>(tid & 0x0fU)));
+    // Group 3 at offset 40: HE_SU MCS 7, 80 MHz, RSSI -60 dBm
+    putLe32(raw.data() + 40, fieldPrep(MT_PRXV_TX_MODE, MT_PHY_TYPE_HE_SU) |
+                             fieldPrep(MT_PRXV_TX_RATE, 7) |
+                             fieldPrep(MT_PRXV_FRAME_MODE, CMD_CBW_80MHZ));
+    putLe32(raw.data() + 44, fieldPrep(MT_PRXV_RCPI0, rssiToRcpi(-60)));
+    memcpy(raw.data() + 48, eth, sizeof(eth));
+    bus.injectRxPacket(MT_RX_DATA_RING_BASE, MT_INT_RX_DONE_DATA, raw.data(), raw.size());
+}
+
+static void testRxReorderAmsduTxAddbaAndBatching(MockMT7902AsicBus &bus, MT7902Device &dev) {
+    printf("[11/11] Testing RX A-MPDU reorder (OOO, A-MSDU, wrap, BAR, timeout), TX ADDBA & DMA batching...\n");
+
+    TEST_CHECK(dev.dma().ring(kRxData).ndesc == 1024, "Expected 1024-entry RX data ring");
+
+    MT7902Sta sta(dev);
+    MockStaListener listener;
+    sta.setListener(&listener);
+    TEST_CHECK(sta.setPower(true) == kOk, "sta.setPower failed");
+
+    // Associate to a 5 GHz 80 MHz open AP
+    const uint8_t apBssid[6] = { 0x7c, 0x7b, 0x68, 0xaa, 0xbb, 0xcc };
+    const char *ssidStr = "HighSpeed5G";
+    std::vector<uint8_t> beacon(36, 0);
+    putLe16(beacon.data() + 0, 0x0080);
+    memset(beacon.data() + 4, 0xff, 6);
+    memcpy(beacon.data() + 10, apBssid, 6);
+    memcpy(beacon.data() + 16, apBssid, 6);
+    putLe16(beacon.data() + 32, 100);
+    putLe16(beacon.data() + 34, 0x0401);
+    beacon.push_back(0); beacon.push_back(static_cast<uint8_t>(strlen(ssidStr)));
+    beacon.insert(beacon.end(), ssidStr, ssidStr + strlen(ssidStr));
+    beacon.push_back(61); beacon.push_back(22); beacon.push_back(116); beacon.push_back(0x05);
+    beacon.insert(beacon.end(), 20, 0);
+    beacon.push_back(191); beacon.push_back(12); beacon.insert(beacon.end(), 12, 0);
+    beacon.push_back(192); beacon.push_back(5); beacon.push_back(1); beacon.push_back(122);
+    beacon.push_back(0); beacon.push_back(0); beacon.push_back(0);
+    beacon.push_back(255); beacon.push_back(4); beacon.push_back(35);
+    beacon.push_back(0x05); beacon.push_back(0); beacon.push_back(0);
+
+    inject80211FrameOnRx2(bus, beacon.data(), beacon.size(), 116, -55);
+    dev.serviceInterrupt();
+
+    bus.sawWtblSmps = false;
+    AssocRequestParams areq;
+    areq.ssidLen = static_cast<uint8_t>(strlen(ssidStr));
+    memcpy(areq.ssid, ssidStr, areq.ssidLen);
+    memcpy(areq.bssid, apBssid, 6);
+    areq.hasBssid = true;
+    areq.authLower = 1;
+    areq.authUpper = 0;
+    TEST_CHECK(sta.associate(areq) == kOk, "associate failed");
+
+    uint8_t authResp[30] = {};
+    putLe16(authResp + 0, 0x00b0);
+    memcpy(authResp + 4, dev.capability().macAddr, 6);
+    memcpy(authResp + 10, apBssid, 6);
+    memcpy(authResp + 16, apBssid, 6);
+    putLe16(authResp + 26, 2);
+    inject80211FrameOnRx2(bus, authResp, sizeof(authResp), 116, -55);
+    dev.serviceInterrupt();
+
+    uint8_t assocResp[32] = {};
+    putLe16(assocResp + 0, 0x0010);
+    memcpy(assocResp + 4, dev.capability().macAddr, 6);
+    memcpy(assocResp + 10, apBssid, 6);
+    memcpy(assocResp + 16, apBssid, 6);
+    putLe16(assocResp + 24, 0x0401);
+    putLe16(assocResp + 28, 0xc009);
+    inject80211FrameOnRx2(bus, assocResp, sizeof(assocResp), 116, -55);
+    dev.serviceInterrupt();
+    TEST_CHECK(sta.link().state == kStaRun, "Expected kStaRun");
+    TEST_CHECK(bus.sawWtblSmps, "WTBL_SMPS TLV must be sent in uniUpdateSta");
+
+    // 1. AP sends RX ADDBA Request (TID=0, SSN=4094, win=64, amsdu=1)
+    uint8_t addbaReq[33] = {};
+    putLe16(addbaReq + 0, 0x00d0);
+    memcpy(addbaReq + 4, dev.capability().macAddr, 6);
+    memcpy(addbaReq + 10, apBssid, 6);
+    memcpy(addbaReq + 16, apBssid, 6);
+    addbaReq[24] = 3; addbaReq[25] = 0; addbaReq[26] = 5;
+    putLe16(addbaReq + 27, static_cast<uint16_t>((64U << 6) | (0U << 2) | (1U << 1) | 1U));
+    putLe16(addbaReq + 31, static_cast<uint16_t>(4094U << 4));
+    inject80211FrameOnRx2(bus, addbaReq, sizeof(addbaReq), 116, -55);
+    dev.serviceInterrupt();
+
+    // 2. Inject out-of-order burst across 12-bit SN wrap (4094 -> 4095[A-MSDU 3 subframes] -> 0 -> 1) + duplicate 4094
+    // Arrival order: 4094 (in-order), 0 (OOO), 1 (OOO), 4094 (dup), 4095(FIRST/MID/LAST A-MSDU)
+    listener.rxFrames.clear();
+    uint32_t refillsBefore = bus.rx2RefillWrites;
+    inject8023QosRx2(bus, dev.capability().macAddr, apBssid, 4094, 0, 0, 1001);
+    inject8023QosRx2(bus, dev.capability().macAddr, apBssid, 0,    0, 0, 1005);
+    inject8023QosRx2(bus, dev.capability().macAddr, apBssid, 1,    0, 0, 1006);
+    inject8023QosRx2(bus, dev.capability().macAddr, apBssid, 4094, 0, 0, 9999); // dup!
+    inject8023QosRx2(bus, dev.capability().macAddr, apBssid, 4095, 0, MT_RXD4_FIRST_AMSDU_FRAME, 1002);
+    inject8023QosRx2(bus, dev.capability().macAddr, apBssid, 4095, 0, MT_RXD4_MID_AMSDU_FRAME,   1003);
+    inject8023QosRx2(bus, dev.capability().macAddr, apBssid, 4095, 0, MT_RXD4_LAST_AMSDU_FRAME,  1004);
+    dev.serviceInterrupt();
+
+    // Verify batched RX refill: 7 packets must require only 1 BAR0 CPU_IDX refill write!
+    TEST_CHECK(bus.rx2RefillWrites - refillsBefore == 1,
+               "Expected 1 batched RX refill write for 7 packets, got %u",
+               bus.rx2RefillWrites - refillsBefore);
+
+    // Verify exact reassembled order: 1001, 1002, 1003, 1004, 1005, 1006 (dup 9999 dropped)
+    TEST_CHECK(listener.rxFrames.size() == 6,
+               "Expected 6 reordered frames, got %zu", listener.rxFrames.size());
+    for (size_t i = 0; i < 6; ++i) {
+        uint16_t got = getLe16(listener.rxFrames[i].data() + 14);
+        uint16_t exp = static_cast<uint16_t>(1001 + i);
+        TEST_CHECK(got == exp, "Reorder idx %zu: expected tag %u, got %u", i, exp, got);
+    }
+    TEST_CHECK(sta.rxReorderStats().dupsDropped == 1, "Duplicate frame was not dropped");
+
+    // 3. Test OOO multi-subframe A-MSDU + timeout release (seq 2 missing, seq 3 is 2-subframe A-MSDU)
+    listener.rxFrames.clear();
+    inject8023QosRx2(bus, dev.capability().macAddr, apBssid, 3, 0, MT_RXD4_FIRST_AMSDU_FRAME, 2001);
+    inject8023QosRx2(bus, dev.capability().macAddr, apBssid, 3, 0, MT_RXD4_LAST_AMSDU_FRAME,  2002);
+    dev.serviceInterrupt();
+    TEST_CHECK(listener.rxFrames.empty() && sta.hasPendingReorderFrames(),
+               "OOO A-MSDU seq 3 must wait for missing seq 2");
+
+    bus.sleepMs(100);
+    sta.pollRxReorderTimeouts();
+    TEST_CHECK(listener.rxFrames.size() == 2 &&
+                   getLe16(listener.rxFrames[0].data() + 14) == 2001 &&
+                   getLe16(listener.rxFrames[1].data() + 14) == 2002 &&
+                   !sta.hasPendingReorderFrames(),
+               "Timeout flush did not release buffered OOO A-MSDU subframes in order");
+
+    // 4. Test BAR Control frame flushing buffered seq 6 when seq 4 & 5 are missing
+    listener.rxFrames.clear();
+    inject8023QosRx2(bus, dev.capability().macAddr, apBssid, 6, 0, 0, 3001);
+    dev.serviceInterrupt();
+    TEST_CHECK(listener.rxFrames.empty(), "Seq 6 should buffer while waiting for seq 4");
+
+    uint8_t bar[20] = {};
+    putLe16(bar + 0, 0x0084); // Control: Block Ack Request
+    memcpy(bar + 4, dev.capability().macAddr, 6);
+    memcpy(bar + 10, apBssid, 6);
+    putLe16(bar + 16, 0x0004); // TID=0, Compressed BAR
+    putLe16(bar + 18, static_cast<uint16_t>(6U << 4)); // SSN=6
+    inject80211FrameOnRx2(bus, bar, sizeof(bar), 116, -55);
+    dev.serviceInterrupt();
+    TEST_CHECK(listener.rxFrames.size() == 1 && getLe16(listener.rxFrames[0].data() + 14) == 3001,
+               "BAR control frame must advance head and deliver buffered seq 6");
+
+    // 5. Test TX Originator ADDBA Request -> ADDBA Response -> STA_REC_BA(tx=true) + MT_TXD7_HW_AMSDU + batched TX doorbell
+    bus.capturedBand0TxPayloads.clear();
+    bus.capturedBand0Txwis.clear();
+    bus.sawStaRecBaTx = false;
+    uint8_t txEth[64] = {};
+    memcpy(txEth + 0, apBssid, 6);
+    memcpy(txEth + 6, dev.capability().macAddr, 6);
+    putBe16(txEth + 12, 0x0800);
+
+    // First unicast data frame triggers automatic TX ADDBA Request
+    TEST_CHECK(sta.outputEthernetPacket(txEth, sizeof(txEth), true) == kOk, "First unicast TX failed");
+    TEST_CHECK(bus.capturedBand0TxPayloads.size() == 2 &&
+                   bus.capturedBand0TxPayloads[0].size() == 33 &&
+                   bus.capturedBand0TxPayloads[0][24] == 3 &&
+                   bus.capturedBand0TxPayloads[0][25] == 0,
+               "Expected automatic TX ADDBA Request before first unicast QoS data frame");
+    uint8_t txAddbaTok = bus.capturedBand0TxPayloads[0][26];
+
+    // AP replies with ADDBA Response (status=0, tid=0, win=64, amsdu=1)
+    uint8_t addbaResp[33] = {};
+    putLe16(addbaResp + 0, 0x00d0);
+    memcpy(addbaResp + 4, dev.capability().macAddr, 6);
+    memcpy(addbaResp + 10, apBssid, 6);
+    memcpy(addbaResp + 16, apBssid, 6);
+    addbaResp[24] = 3; addbaResp[25] = 1; addbaResp[26] = txAddbaTok;
+    putLe16(addbaResp + 27, 0); // Status = Success
+    putLe16(addbaResp + 29, static_cast<uint16_t>((64U << 6) | (0U << 2) | (1U << 1) | 1U));
+    inject80211FrameOnRx2(bus, addbaResp, sizeof(addbaResp), 116, -55);
+    dev.serviceInterrupt();
+    TEST_CHECK(bus.sawStaRecBaTx && (sta.txBaActiveMask() & 1U) != 0,
+               "ADDBA Response must activate TX Originator BA in hardware");
+
+    // Batched TX: submit 4 frames with kick=false, then 1 flushTx() -> exactly 1 TX0 doorbell write + HW_AMSDU set!
+    bus.capturedBand0Txwis.clear();
+    uint32_t txKicksBefore = bus.tx0DoorbellWrites;
+    for (int i = 0; i < 4; ++i)
+        TEST_CHECK(sta.outputEthernetPacket(txEth, sizeof(txEth), false) == kOk, "Batched TX failed");
+    TEST_CHECK(bus.tx0DoorbellWrites == txKicksBefore, "kick=false must not ring TX0 doorbell prematurely");
+    sta.flushTx();
+    TEST_CHECK(bus.tx0DoorbellWrites == txKicksBefore + 1, "flushTx() must ring TX0 doorbell once");
+    TEST_CHECK(bus.capturedBand0Txwis.size() == 4, "Expected 4 batched TXWIs processed by single doorbell");
+    TEST_CHECK((getLe32(&bus.capturedBand0Txwis[0].txd[7]) & MT_TXD7_HW_AMSDU) != 0,
+               "TXWI DW7 must set MT_TXD7_HW_AMSDU once TX BA with A-MSDU is active");
+
+    (void)sta.disassociate(8);
+    dev.mac().releaseAllTokens();
+}
+
 static void testMacOSWclWireCodecs() {
     printf("[TEST 6/7] Verifying macOS Sequoia 15.2 / Tahoe 26 native WCL wire structures...\n");
     std::vector<uint8_t> scanBuf(0x58 + 2 * 12, 0);
@@ -1460,6 +1704,7 @@ int main() {
         testStaScanWpa2AssocKeyInstallAndData(mockBus, dev);
         testWclWpa2FourWayHandshakeEndToEnd(mockBus, dev);
         test5Ghz80MhzBaPostScanAndReentrancy(mockBus, dev);
+        testRxReorderAmsduTxAddbaAndBatching(mockBus, dev);
         dev.shutdown();
     }
 
@@ -1468,7 +1713,7 @@ int main() {
     testBluetoothPatcherLogic();
 
     printf("======================================================================\n");
-    printf(" [PASS] All 10 MT7902 test suites completed with 0 errors!\n");
+    printf(" [PASS] All 11 MT7902 test suites completed with 0 errors!\n");
     printf("======================================================================\n");
     return 0;
 }

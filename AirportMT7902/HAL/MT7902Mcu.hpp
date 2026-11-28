@@ -109,7 +109,7 @@ public:
     void processRxRing0Packet(const uint8_t *pkt, size_t len);
 
     // Poll RX Ring 0 and feed all pending packets into processRxRing0Packet()
-    void drainRxEvents();
+    uint32_t drainRxEvents();
 
     // Firmware boot & control commands
     int restartFirmware();

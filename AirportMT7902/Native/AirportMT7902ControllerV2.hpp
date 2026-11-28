@@ -100,6 +100,8 @@ public:
     IOReturn setPowerState(unsigned long powerStateOrdinal, IOService *policyMaker) override;
 
     // IStaEventListener callbacks
+    void onRxBatchBegin() override;
+    void onRxBatchComplete() override;
     void onDataFrameReceived(const uint8_t *ethFrame, size_t len) override;
     void onScanFinished() override;
     void onBssDiscovered(const mt7902::ScannedBss &bss) override;
@@ -113,8 +115,9 @@ public:
 private:
     static void interruptOccurred(OSObject *owner, IOInterruptEventSource *src, int count);
     static void watchdogFired(OSObject *owner, IOTimerEventSource *timer);
+    static void reorderTimerFired(OSObject *owner, IOTimerEventSource *timer);
     static IOReturn outputPacketGated(OSObject *owner, void *arg0, void *, void *, void *);
-    UInt32 sendLinearPacket(mbuf_t m);
+    UInt32 sendLinearPacket(mbuf_t m, bool kick = true);
     bool initCoreCaptureLogs();
     bool createMediumTables(const IONetworkMedium **primary);
     void releaseResources();
@@ -123,6 +126,7 @@ private:
     IOCommandGate *mCommandGate = nullptr;
     IOInterruptEventSource *mInterruptSrc = nullptr;
     IOTimerEventSource *mWatchdogTimer = nullptr;
+    IOTimerEventSource *mReorderTimer = nullptr;
     AirportMT7902EthernetInterface *mBsdIf = nullptr;
     AirportMT7902SkywalkInterface *mProtoIf = nullptr;
 #ifdef AIRPORT_WCL
@@ -138,6 +142,9 @@ private:
     mt7902::MT7902Sta *mSta = nullptr;
     uint32_t mPowerState = 1;
     bool mDriverAvailableReported = false;
+    bool mInRxBatch = false;
+    bool mReorderTimerArmed = false;
+    uint32_t mPendingInputPackets = 0;
     uint8_t mTxLinear[2048] = {};
 
     // CoreCapture & FaultReporter objects required by Sonoma/Sequoia/Tahoe IO80211Family

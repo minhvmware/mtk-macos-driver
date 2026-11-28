@@ -150,7 +150,7 @@ bool AirportMT7902::createMediumTables(const IONetworkMedium **primary) {
     mMediumDict = OSDictionary::withCapacity(2);
     if (!mMediumDict)
         return false;
-    IONetworkMedium *ieeeMed = IONetworkMedium::medium(kIOMediumIEEE80211, 54000000ULL);
+    IONetworkMedium *ieeeMed = IONetworkMedium::medium(kIOMediumIEEE80211, 600000000ULL);
     if (!ieeeMed)
         return false;
     IONetworkMedium::addMedium(mMediumDict, ieeeMed);
@@ -235,6 +235,10 @@ bool AirportMT7902::start(IOService *provider) {
     mWatchdogTimer = IOTimerEventSource::timerEventSource(this, &AirportMT7902::watchdogFired);
     if (mWatchdogTimer && gMT7902WorkQueue->addEventSource(mWatchdogTimer) == kIOReturnSuccess)
         mWatchdogTimer->setTimeoutMS(1000);
+
+    mReorderTimer = IOTimerEventSource::timerEventSource(this, &AirportMT7902::reorderTimerFired);
+    if (mReorderTimer && gMT7902WorkQueue->addEventSource(mReorderTimer) != kIOReturnSuccess)
+        OSSafeReleaseNULL(mReorderTimer);
 
     const IONetworkMedium *primary = nullptr;
     if (!createMediumTables(&primary) || !setCurrentMedium(primary) || !setSelectedMedium(primary)) {
@@ -339,6 +343,12 @@ void AirportMT7902::releaseResources() {
     OSSafeReleaseNULL(mProtoIf);
 
     if (gMT7902WorkQueue) {
+        if (mReorderTimer) {
+            mReorderTimer->cancelTimeout();
+            gMT7902WorkQueue->removeEventSource(mReorderTimer);
+            OSSafeReleaseNULL(mReorderTimer);
+            mReorderTimerArmed = false;
+        }
         if (mWatchdogTimer) {
             mWatchdogTimer->cancelTimeout();
             gMT7902WorkQueue->removeEventSource(mWatchdogTimer);
@@ -438,18 +448,18 @@ bool AirportMT7902::configureInterface(IONetworkInterface *netif) {
 #ifdef __PRIVATE_SPI__
 #ifdef AIRPORT_WCL
     if (netif->configureOutputPullModel(
-            256, kIONetworkWorkLoopSynchronous, 0,
+            512, kIONetworkWorkLoopSynchronous, 0,
             IOEthernetInterface::kOutputPacketSchedulingModelNormal, 0) != kIOReturnSuccess)
         return false;
 #else
     netif->configureOutputPullModel(
-        256, 0, 0, IOEthernetInterface::kOutputPacketSchedulingModelNormal, 0);
+        512, 0, 0, IOEthernetInterface::kOutputPacketSchedulingModelNormal, 0);
 #endif
 #endif
     return true;
 }
 
-UInt32 AirportMT7902::sendLinearPacket(mbuf_t m) {
+UInt32 AirportMT7902::sendLinearPacket(mbuf_t m, bool kick) {
     if (!m || !mSta) {
         if (m && mbuf_type(m) != MBUF_TYPE_FREE)
             freePacket(m);
@@ -465,13 +475,21 @@ UInt32 AirportMT7902::sendLinearPacket(mbuf_t m) {
         freePacket(m);
         return kIOReturnOutputDropped;
     }
-    if (mbuf_copydata(m, 0, pktLen, mTxLinear) != 0) {
-        freePacket(m);
-        return kIOReturnOutputDropped;
-    }
-    freePacket(m);
 
-    if (mSta->outputEthernetPacket(mTxLinear, pktLen) != mt7902::kOk) {
+    int txErr;
+    if (!mbuf_next(m) && mbuf_len(m) >= pktLen) {
+        txErr = mSta->outputEthernetPacket(static_cast<const uint8_t *>(mbuf_data(m)), pktLen, kick);
+        freePacket(m);
+    } else {
+        if (mbuf_copydata(m, 0, pktLen, mTxLinear) != 0) {
+            freePacket(m);
+            return kIOReturnOutputDropped;
+        }
+        freePacket(m);
+        txErr = mSta->outputEthernetPacket(mTxLinear, pktLen, kick);
+    }
+
+    if (txErr != mt7902::kOk) {
         if (mNetStats) mNetStats->outputErrors++;
         return kIOReturnOutputDropped;
     }
@@ -481,7 +499,7 @@ UInt32 AirportMT7902::sendLinearPacket(mbuf_t m) {
 
 IOReturn AirportMT7902::outputPacketGated(OSObject *owner, void *arg0, void *, void *, void *) {
     auto *self = static_cast<AirportMT7902 *>(owner);
-    return self->sendLinearPacket(static_cast<mbuf_t>(arg0));
+    return self->sendLinearPacket(static_cast<mbuf_t>(arg0), true);
 }
 
 UInt32 AirportMT7902::outputPacket(mbuf_t m, void *param) {
@@ -497,7 +515,7 @@ UInt32 AirportMT7902::outputPacket(mbuf_t m, void *param) {
         return st;
     }
 #endif
-    return sendLinearPacket(m);
+    return sendLinearPacket(m, true);
 }
 
 #ifdef __PRIVATE_SPI__
@@ -505,16 +523,20 @@ IOReturn AirportMT7902::outputStart(IONetworkInterface *interface, IOOptionBits 
     (void)options;
     if (!interface)
         return kIOReturnBadArgument;
-    for (int batch = 0; batch < 8; ++batch) {
+    for (int batch = 0; batch < 16; ++batch) {
         mbuf_t m = nullptr;
         if (interface->dequeueOutputPackets(32, &m) != kIOReturnSuccess || !m)
             break;
+        bool submittedAny = false;
         while (m) {
             mbuf_t next = mbuf_nextpkt(m);
             mbuf_setnextpkt(m, nullptr);
-            sendLinearPacket(m);
+            if (sendLinearPacket(m, false) == kIOReturnOutputSuccess)
+                submittedAny = true;
             m = next;
         }
+        if (submittedAny && mSta)
+            mSta->flushTx();
     }
     return kIOReturnSuccess;
 }
@@ -699,7 +721,39 @@ void AirportMT7902::watchdogFired(OSObject *owner, IOTimerEventSource *timer) {
     if (!self) return;
     if (self->mDevice)
         self->mDevice->serviceInterrupt();
+    if (self->mSta) {
+        self->onRxBatchBegin();
+        self->mSta->pollPeriodic();
+        self->onRxBatchComplete();
+    }
     timer->setTimeoutMS(1000);
+}
+
+void AirportMT7902::reorderTimerFired(OSObject *owner, IOTimerEventSource *) {
+    AirportMT7902 *self = OSDynamicCast(AirportMT7902, owner);
+    if (!self) return;
+    self->mReorderTimerArmed = false;
+    if (self->mSta) {
+        self->onRxBatchBegin();
+        self->mSta->pollRxReorderTimeouts();
+        self->onRxBatchComplete();
+    }
+}
+
+void AirportMT7902::onRxBatchBegin() {
+    mInRxBatch = true;
+}
+
+void AirportMT7902::onRxBatchComplete() {
+    mInRxBatch = false;
+    if (mBsdIf && mPendingInputPackets > 0) {
+        mBsdIf->flushInputQueue();
+        mPendingInputPackets = 0;
+    }
+    if (mReorderTimer && mSta && mSta->hasPendingReorderFrames() && !mReorderTimerArmed) {
+        mReorderTimer->setTimeoutMS(40);
+        mReorderTimerArmed = true;
+    }
 }
 
 void AirportMT7902::onDataFrameReceived(const uint8_t *ethFrame, size_t len) {
@@ -707,11 +761,18 @@ void AirportMT7902::onDataFrameReceived(const uint8_t *ethFrame, size_t len) {
         return;
     mbuf_t m = allocatePacket(static_cast<UInt32>(len));
     if (!m) return;
-    if (mbuf_copyback(m, 0, len, ethFrame, MBUF_DONTWAIT) != 0) {
+    if (!mbuf_next(m) && mbuf_len(m) >= len) {
+        memcpy(mbuf_data(m), ethFrame, len);
+        mbuf_setlen(m, len);
+        mbuf_pkthdr_setlen(m, len);
+    } else if (mbuf_copyback(m, 0, len, ethFrame, MBUF_DONTWAIT) != 0) {
         freePacket(m);
         return;
     }
-    mBsdIf->inputPacket(m, static_cast<UInt32>(len));
+    IOOptionBits opts = mInRxBatch ? IONetworkInterface::kInputOptionQueuePacket : 0;
+    mBsdIf->inputPacket(m, static_cast<UInt32>(len), opts);
+    if (mInRxBatch)
+        mPendingInputPackets++;
     if (mNetStats) mNetStats->inputPackets++;
 }
 
@@ -729,7 +790,12 @@ void AirportMT7902::onAssociationCompleted(bool success, uint16_t statusCode) {
 
 void AirportMT7902::onLinkStateChanged(bool up) {
     if (up) {
-        UInt64 speed = static_cast<UInt64>(mSta->link().txRateMbps) * 1000000ULL;
+        const auto &lk = mSta->link();
+        uint32_t minMbps = (lk.band != mt7902::kBand2GHz && lk.bw >= mt7902::CMD_CBW_80MHZ)
+                               ? 433U
+                               : (lk.bw >= mt7902::CMD_CBW_40MHZ ? 200U : 144U);
+        uint32_t reportMbps = (lk.txRateMbps > minMbps) ? lk.txRateMbps : minMbps;
+        UInt64 speed = static_cast<UInt64>(reportMbps) * 1000000ULL;
         setLinkStatus(kIONetworkLinkValid | kIONetworkLinkActive, getCurrentMedium(), speed);
 #ifdef __PRIVATE_SPI__
         if (mBsdIf)
@@ -738,6 +804,10 @@ void AirportMT7902::onLinkStateChanged(bool up) {
         if (mBsdIf)
             mBsdIf->setLinkState(kIO80211NetworkLinkUp);
     } else {
+        if (mReorderTimer && mReorderTimerArmed) {
+            mReorderTimer->cancelTimeout();
+            mReorderTimerArmed = false;
+        }
         setLinkStatus(kIONetworkLinkValid, getCurrentMedium(), 0);
 #ifdef __PRIVATE_SPI__
         if (mBsdIf) {

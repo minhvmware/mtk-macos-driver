@@ -147,6 +147,10 @@ bool AirportMT7902::start(IOService *provider) {
     if (mWatchdogTimer && mWorkLoop->addEventSource(mWatchdogTimer) == kIOReturnSuccess)
         mWatchdogTimer->setTimeoutMS(1000);
 
+    mReorderTimer = IOTimerEventSource::timerEventSource(this, &AirportMT7902::reorderTimerFired);
+    if (mReorderTimer && mWorkLoop->addEventSource(mReorderTimer) != kIOReturnSuccess)
+        OSSafeReleaseNULL(mReorderTimer);
+
     const IONetworkMedium *primary = nullptr;
     if (!createMediumTables(&primary) || !setCurrentMedium(primary)) {
         releaseResources();
@@ -175,6 +179,12 @@ void AirportMT7902::stop(IOService *provider) {
 
 void AirportMT7902::releaseResources() {
     if (mWorkLoop) {
+        if (mReorderTimer) {
+            mReorderTimer->cancelTimeout();
+            mWorkLoop->removeEventSource(mReorderTimer);
+            OSSafeReleaseNULL(mReorderTimer);
+            mReorderTimerArmed = false;
+        }
         if (mWatchdogTimer) {
             mWatchdogTimer->cancelTimeout();
             mWorkLoop->removeEventSource(mWatchdogTimer);
@@ -424,10 +434,43 @@ void AirportMT7902::watchdogFired(OSObject *owner, IOTimerEventSource *timer) {
         return;
     if (self->mDevice)
         self->mDevice->serviceInterrupt();
+    if (self->mSta) {
+        self->onRxBatchBegin();
+        self->mSta->pollPeriodic();
+        self->onRxBatchComplete();
+    }
     timer->setTimeoutMS(1000);
 }
 
+void AirportMT7902::reorderTimerFired(OSObject *owner, IOTimerEventSource *) {
+    AirportMT7902 *self = OSDynamicCast(AirportMT7902, owner);
+    if (!self)
+        return;
+    self->mReorderTimerArmed = false;
+    if (self->mSta) {
+        self->onRxBatchBegin();
+        self->mSta->pollRxReorderTimeouts();
+        self->onRxBatchComplete();
+    }
+}
+
 // --- IStaEventListener callbacks ---
+
+void AirportMT7902::onRxBatchBegin() {
+    mInRxBatch = true;
+}
+
+void AirportMT7902::onRxBatchComplete() {
+    mInRxBatch = false;
+    if (mNetIf && mPendingInputPackets > 0) {
+        mNetIf->flushInputQueue();
+        mPendingInputPackets = 0;
+    }
+    if (mReorderTimer && mSta && mSta->hasPendingReorderFrames() && !mReorderTimerArmed) {
+        mReorderTimer->setTimeoutMS(40);
+        mReorderTimerArmed = true;
+    }
+}
 
 void AirportMT7902::onDataFrameReceived(const uint8_t *ethFrame, size_t len) {
     if (!mNetIf || !ethFrame || len < mt7902::kEthHdrLen)
@@ -435,11 +478,18 @@ void AirportMT7902::onDataFrameReceived(const uint8_t *ethFrame, size_t len) {
     mbuf_t m = allocatePacket(static_cast<UInt32>(len));
     if (!m)
         return;
-    if (mbuf_copyback(m, 0, len, ethFrame, MBUF_DONTWAIT) != 0) {
+    if (!mbuf_next(m) && mbuf_len(m) >= len) {
+        memcpy(mbuf_data(m), ethFrame, len);
+        mbuf_setlen(m, len);
+        mbuf_pkthdr_setlen(m, len);
+    } else if (mbuf_copyback(m, 0, len, ethFrame, MBUF_DONTWAIT) != 0) {
         freePacket(m);
         return;
     }
-    mNetIf->inputPacket(m, static_cast<UInt32>(len));
+    IOOptionBits opts = mInRxBatch ? IONetworkInterface::kInputOptionQueuePacket : 0;
+    mNetIf->inputPacket(m, static_cast<UInt32>(len), opts);
+    if (mInRxBatch)
+        mPendingInputPackets++;
     if (mNetStats) mNetStats->inputPackets++;
 }
 
@@ -467,9 +517,18 @@ void AirportMT7902::onAssociationCompleted(bool success, uint16_t statusCode) {
 
 void AirportMT7902::onLinkStateChanged(bool up) {
     if (up) {
-        UInt64 speed = static_cast<UInt64>(mSta->link().txRateMbps) * 1000000ULL;
+        const auto &lk = mSta->link();
+        uint32_t minMbps = (lk.band != mt7902::kBand2GHz && lk.bw >= mt7902::CMD_CBW_80MHZ)
+                               ? 433U
+                               : (lk.bw >= mt7902::CMD_CBW_40MHZ ? 200U : 144U);
+        uint32_t reportMbps = (lk.txRateMbps > minMbps) ? lk.txRateMbps : minMbps;
+        UInt64 speed = static_cast<UInt64>(reportMbps) * 1000000ULL;
         setLinkStatus(kIONetworkLinkValid | kIONetworkLinkActive, getCurrentMedium(), speed);
     } else {
+        if (mReorderTimer && mReorderTimerArmed) {
+            mReorderTimer->cancelTimeout();
+            mReorderTimerArmed = false;
+        }
         setLinkStatus(kIONetworkLinkValid, getCurrentMedium(), 0);
     }
     if (mNetIf)

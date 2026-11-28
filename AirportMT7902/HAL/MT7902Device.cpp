@@ -368,6 +368,9 @@ void MT7902Device::handleRxPacket(const uint8_t *buf, size_t len) {
         mRxParseFailCount++;
         return;
     }
+    if (meta.is8023 && (meta.fcsError || meta.icvError || meta.micError)) {
+        return;
+    }
 
     mRxNormalCount++;
     mMac.recordRxBytes(meta.payloadLen);
@@ -383,38 +386,80 @@ void MT7902Device::handleRxPacket(const uint8_t *buf, size_t len) {
     }
 }
 
-void MT7902Device::drainRxData() {
-    if (!mRxDataScratch)
-        return;
-    size_t len = 0;
+uint32_t MT7902Device::drainRxData() {
+    if (mDrainingRxData)
+        return 0;
+    mDrainingRxData = true;
+    uint32_t processed = 0;
+    uint32_t sinceRefill = 0;
     for (int i = 0; i < 512; ++i) {
-        if (mDma.rxDequeue(kRxData, mRxDataScratch, MT7902_RX_BUF_SIZE, len) != kOk)
+        const uint8_t *pkt = nullptr;
+        size_t len = 0;
+        bool dropped = false;
+        int r = mDma.rxPeek(kRxData, pkt, len, dropped);
+        if (r != kOk) {
+            if (dropped) {
+                sinceRefill++;
+                if (sinceRefill >= 32) {
+                    mDma.rxRefill(kRxData);
+                    sinceRefill = 0;
+                }
+                continue;
+            }
             break;
-        handleRxPacket(mRxDataScratch, len);
+        }
+        handleRxPacket(pkt, len);
+        mDma.rxConsume(kRxData);
+        processed++;
+        sinceRefill++;
+        if (sinceRefill >= 32) {
+            mDma.rxRefill(kRxData);
+            sinceRefill = 0;
+        }
     }
+    if (sinceRefill > 0)
+        mDma.rxRefill(kRxData);
+    mDrainingRxData = false;
+    return processed;
 }
 
 void MT7902Device::serviceInterrupt() {
     if (!mInitialized)
         return;
 
-    IrqStatus st = mDma.handleInterrupt();
+    IrqStatus st = mDma.ackInterrupt();
     if (st.mcuStopDma) {
         MTK_ERR("MT7902 MCU signaled STOP_DMA; triggering hardware recovery");
         (void)resetHardware();
         return;
     }
-    if (st.txDone) {
-        mDma.txCleanup(kTxMcuWm);
-        mDma.txCleanup(kTxFwdl);
-        mDma.txCleanup(kTxBand0);
+
+    if (mRxCb)
+        mRxCb->onRxBatchBegin();
+
+    // NAPI-style drain loop while WFDMA0 host IRQs remain masked:
+    // drains RX data, RX MCU/TX-free notifications, and TX ring completions before unmasking.
+    for (int pass = 0; pass < 4; ++pass) {
+        if (st.txDone || pass == 0) {
+            mDma.txCleanup(kTxMcuWm);
+            mDma.txCleanup(kTxFwdl);
+            mDma.txCleanup(kTxBand0);
+        }
+        uint32_t rxDataN = drainRxData();
+        uint32_t rxEvtN = mMcu.drainRxEvents();
+        if (rxDataN == 0 && rxEvtN == 0)
+            break;
+        mDma.clearPendingDataIrqs();
     }
-    drainRxData();
-    mMcu.drainRxEvents();
+
+    if (mRxCb)
+        mRxCb->onRxBatchComplete();
+
+    mDma.unmaskInterrupts();
 }
 
 int MT7902Device::sendEthernetFrame(const uint8_t *frame, size_t len, uint16_t wcid,
-                                    bool qos, bool protect) {
+                                    bool qos, bool protect, bool hwAmsdu, bool kick) {
     if (!mRadioRunning)
         return kErrIO;
     TxPacketOptions opts;
@@ -422,9 +467,10 @@ int MT7902Device::sendEthernetFrame(const uint8_t *frame, size_t len, uint16_t w
     opts.is8023 = true;
     opts.qos = qos;
     opts.protect = protect;
+    opts.hwAmsdu = hwAmsdu;
     opts.ac = 2; // Best Effort
     opts.tid = 0;
-    return mMac.transmitFrame(frame, len, opts);
+    return mMac.transmitFrame(frame, len, opts, kick);
 }
 
 int MT7902Device::send80211Frame(const uint8_t *frame, size_t len, uint16_t wcid,

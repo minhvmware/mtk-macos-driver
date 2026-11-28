@@ -240,7 +240,7 @@ int MT7902Dma::reset(bool forceReset) {
     return enable();
 }
 
-int MT7902Dma::txSubmitCopy(DmaQueueId qid, const void *data, size_t len) {
+int MT7902Dma::txSubmitCopy(DmaQueueId qid, const void *data, size_t len, bool kick) {
     if (qid >= kDmaQueueCount || !data || len == 0)
         return kErrInvalid;
     DmaRing &r = mRings[qid];
@@ -248,15 +248,19 @@ int MT7902Dma::txSubmitCopy(DmaQueueId qid, const void *data, size_t len) {
         return kErrInvalid;
 
     // Reclaim finished descriptors before checking capacity
-    if (r.queued >= r.ndesc - 2)
+    if (r.queued >= r.ndesc - 2) {
+        if (!kick)
+            txKick(qid);
         txCleanup(qid);
+    }
     if (r.queued >= r.ndesc - 1)
         return kErrNoSpace;
 
     uint16_t idx = r.head;
     DmaRingEntry &ent = r.entries[idx];
     memcpy(ent.buf.virt, data, len);
-    mBus.syncDmaForDevice(ent.buf);
+    if (kick)
+        mBus.syncDmaForDevice(ent.buf);
 
     Mt76Desc &desc = r.descs()[idx];
     desc.buf0 = static_cast<uint32_t>(ent.buf.phys & 0xffffffffU);
@@ -264,16 +268,27 @@ int MT7902Dma::txSubmitCopy(DmaQueueId qid, const void *data, size_t len) {
     desc.info = fieldPrep(MT_DMA_CTL_SDP0_H, static_cast<uint32_t>(ent.buf.phys >> 32));
     desc.ctrl = fieldPrep(MT_DMA_CTL_SD_LEN0, static_cast<uint32_t>(len)) |
                 MT_DMA_CTL_LAST_SEC0;
-    mBus.syncDmaForDevice(r.descBuf);
 
     ent.inUse = true;
     ent.cookie = nullptr;
     r.head = static_cast<uint16_t>((idx + 1U) % r.ndesc);
     r.queued++;
 
-    // Ring doorbell
-    mBus.wr(r.regBase + MT_RING_REG_CPU_IDX, r.head);
+    if (kick) {
+        mBus.syncDmaForDevice(r.descBuf);
+        mBus.wr(r.regBase + MT_RING_REG_CPU_IDX, r.head);
+    }
     return kOk;
+}
+
+void MT7902Dma::txKick(DmaQueueId qid) {
+    if (qid >= kDmaQueueCount)
+        return;
+    DmaRing &r = mRings[qid];
+    if (!r.initialized || r.isRx)
+        return;
+    mBus.syncDmaForDevice(r.descBuf);
+    mBus.wr(r.regBase + MT_RING_REG_CPU_IDX, r.head);
 }
 
 int MT7902Dma::txSubmitDual(DmaQueueId qid, const void *hdr, size_t hdrLen,
@@ -327,11 +342,12 @@ uint32_t MT7902Dma::txCleanup(DmaQueueId qid, void (*onFree)(void *cookie, void 
     if (!r.initialized || r.isRx || r.queued == 0)
         return 0;
 
+    // MT_WFDMA0_GLO_CFG_TX_WB_DDONE is enabled, so hardware writes MT_DMA_CTL_DMA_DONE
+    // into host descriptor memory directly without needing a BAR0 DMA_IDX MMIO read.
     mBus.syncDmaForCpu(r.descBuf);
-    uint32_t dmaIdx = mBus.rr(r.regBase + MT_RING_REG_DMA_IDX);
     uint32_t freed = 0;
 
-    while (r.queued > 0 && r.tail != dmaIdx) {
+    while (r.queued > 0) {
         Mt76Desc &desc = r.descs()[r.tail];
         if (!(desc.ctrl & MT_DMA_CTL_DMA_DONE))
             break;
@@ -382,7 +398,8 @@ int MT7902Dma::rxRefill(DmaQueueId qid) {
     return refilled;
 }
 
-int MT7902Dma::rxDequeue(DmaQueueId qid, uint8_t *outBuf, size_t outCap, size_t &outLen) {
+int MT7902Dma::rxDequeue(DmaQueueId qid, uint8_t *outBuf, size_t outCap, size_t &outLen,
+                         bool autoRefill) {
     outLen = 0;
     if (qid >= kDmaQueueCount || !outBuf || outCap == 0)
         return kErrInvalid;
@@ -410,8 +427,52 @@ int MT7902Dma::rxDequeue(DmaQueueId qid, uint8_t *outBuf, size_t outCap, size_t 
     r.tail = static_cast<uint16_t>((r.tail + 1U) % r.ndesc);
     r.queued--;
 
-    rxRefill(qid);
+    if (autoRefill)
+        rxRefill(qid);
     return (drop || outLen == 0) ? kErrAgain : kOk;
+}
+
+int MT7902Dma::rxPeek(DmaQueueId qid, const uint8_t *&outData, size_t &outLen, bool &wasDropped) {
+    outData = nullptr;
+    outLen = 0;
+    wasDropped = false;
+    if (qid >= kDmaQueueCount)
+        return kErrInvalid;
+    DmaRing &r = mRings[qid];
+    if (!r.initialized || !r.isRx || r.queued == 0)
+        return kErrAgain;
+
+    mBus.syncDmaForCpu(r.descBuf);
+    Mt76Desc &desc = r.descs()[r.tail];
+    uint32_t ctrl = desc.ctrl;
+    if (!(ctrl & MT_DMA_CTL_DMA_DONE))
+        return kErrAgain;
+
+    uint32_t len = fieldGet(MT_DMA_CTL_SD_LEN0, ctrl);
+    DmaRingEntry &ent = r.entries[r.tail];
+    bool drop = (ctrl & (MT_DMA_CTL_TO_HOST_A | MT_DMA_CTL_DROP)) != 0;
+    if (drop || len == 0 || len > r.bufSize) {
+        ent.inUse = false;
+        r.tail = static_cast<uint16_t>((r.tail + 1U) % r.ndesc);
+        r.queued--;
+        wasDropped = true;
+        return kErrAgain;
+    }
+
+    outData = static_cast<const uint8_t *>(ent.buf.virt);
+    outLen = len;
+    return kOk;
+}
+
+void MT7902Dma::rxConsume(DmaQueueId qid) {
+    if (qid >= kDmaQueueCount)
+        return;
+    DmaRing &r = mRings[qid];
+    if (!r.initialized || !r.isRx || r.queued == 0)
+        return;
+    r.entries[r.tail].inUse = false;
+    r.tail = static_cast<uint16_t>((r.tail + 1U) % r.ndesc);
+    r.queued--;
 }
 
 void MT7902Dma::setIrqMask(uint32_t clearBits, uint32_t setBits) {
@@ -429,7 +490,7 @@ void MT7902Dma::enableInterrupts() {
     setIrqMask(0, MT_INT_TX_DONE_ALL | MT_INT_RX_DONE_MT7902_ALL | MT_INT_MCU_CMD);
 }
 
-IrqStatus MT7902Dma::handleInterrupt() {
+IrqStatus MT7902Dma::ackInterrupt() {
     IrqStatus st;
     mBus.wr(MT_WFDMA0_HOST_INT_ENA, 0);
 
@@ -454,9 +515,23 @@ IrqStatus MT7902Dma::handleInterrupt() {
     st.txDone = (intr & MT_INT_TX_DONE_ALL) != 0;
     st.rxMcuEvent = (intr & MT_INT_RX_DONE_WM) != 0;
     st.rxData = (intr & MT_INT_RX_DONE_DATA) != 0;
+    return st;
+}
 
-    // Re-enable interrupts after servicing
+void MT7902Dma::clearPendingDataIrqs() {
+    uint32_t intr = mBus.rr(MT_WFDMA0_HOST_INT_STA) &
+                    (MT_INT_RX_DONE_MT7902_ALL | MT_INT_TX_DONE_ALL);
+    if (intr)
+        mBus.wr(MT_WFDMA0_HOST_INT_STA, intr);
+}
+
+void MT7902Dma::unmaskInterrupts() {
     mBus.wr(MT_WFDMA0_HOST_INT_ENA, mIrqMask);
+}
+
+IrqStatus MT7902Dma::handleInterrupt() {
+    IrqStatus st = ackInterrupt();
+    unmaskInterrupts();
     return st;
 }
 

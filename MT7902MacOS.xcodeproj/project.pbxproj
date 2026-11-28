@@ -128,6 +128,7 @@
 		FD84C7B73568D9E590CE6211 /* MT7902BeaconParser.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902BeaconParser.hpp; path = AirportMT7902/Net80211/MT7902BeaconParser.hpp; sourceTree = "<group>"; };
 		E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Channels.cpp; path = AirportMT7902/Net80211/MT7902Channels.cpp; sourceTree = "<group>"; };
 		514381CFD8EFEFE73E054C90 /* MT7902Channels.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Channels.hpp; path = AirportMT7902/Net80211/MT7902Channels.hpp; sourceTree = "<group>"; };
+		632AE30DF29EBFD5E1C15A35 /* MT7902RxReorder.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902RxReorder.hpp; path = AirportMT7902/Net80211/MT7902RxReorder.hpp; sourceTree = "<group>"; };
 		8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Sta.cpp; path = AirportMT7902/Net80211/MT7902Sta.cpp; sourceTree = "<group>"; };
 		680F460E6187D6B8E30BAE9A /* MT7902Sta.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = MT7902Sta.hpp; path = AirportMT7902/Net80211/MT7902Sta.hpp; sourceTree = "<group>"; };
 		ED3D5423DBFF8AFC0A2B34EF /* MT7902Wpa2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = MT7902Wpa2.cpp; path = AirportMT7902/Net80211/MT7902Wpa2.cpp; sourceTree = "<group>"; };
@@ -248,6 +249,7 @@
 				FD84C7B73568D9E590CE6211 /* MT7902BeaconParser.hpp */,
 				E1D7ECE7DAEBCD3F7B95147A /* MT7902Channels.cpp */,
 				514381CFD8EFEFE73E054C90 /* MT7902Channels.hpp */,
+				632AE30DF29EBFD5E1C15A35 /* MT7902RxReorder.hpp */,
 				8F023E3CDFC7A178395729E7 /* MT7902Sta.cpp */,
 				680F460E6187D6B8E30BAE9A /* MT7902Sta.hpp */,
 				ED3D5423DBFF8AFC0A2B34EF /* MT7902Wpa2.cpp */,

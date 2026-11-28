@@ -672,6 +672,14 @@ struct __attribute__((packed)) WtblVhtTlv {
 };
 static_assert(sizeof(WtblVhtTlv) == 12, "WtblVhtTlv must be 12 bytes");
 
+struct __attribute__((packed)) WtblSmpsTlv {
+    uint16_t tag;
+    uint16_t len;
+    uint8_t smps;
+    uint8_t rsv[3];
+};
+static_assert(sizeof(WtblSmpsTlv) == 8, "WtblSmpsTlv must be 8 bytes");
+
 struct __attribute__((packed)) WtblBaTlv {
     uint16_t tag;
     uint16_t len;

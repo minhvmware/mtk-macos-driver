@@ -283,17 +283,28 @@ void MT7902Mcu::processRxRing0Packet(const uint8_t *pkt, size_t len) {
     }
 }
 
-void MT7902Mcu::drainRxEvents() {
+uint32_t MT7902Mcu::drainRxEvents() {
     if (!mRxScratch)
-        return;
+        return 0;
     size_t len = 0;
+    uint32_t processed = 0;
+    uint32_t sinceRefill = 0;
     for (int i = 0; i < 512; ++i) {
-        if (mDma.rxDequeue(kRxMcuEvent, mRxScratch, MT7902_RX_BUF_SIZE, len) != kOk)
+        if (mDma.rxDequeue(kRxMcuEvent, mRxScratch, MT7902_RX_BUF_SIZE, len, false) != kOk)
             break;
+        processed++;
+        sinceRefill++;
+        if (sinceRefill >= 32) {
+            mDma.rxRefill(kRxMcuEvent);
+            sinceRefill = 0;
+        }
         processRxRing0Packet(mRxScratch, len);
     }
+    if (sinceRefill > 0)
+        mDma.rxRefill(kRxMcuEvent);
     if (!mInSendMessage)
         flushDeferredRx();
+    return processed;
 }
 
 int MT7902Mcu::sendMessage(uint32_t cmd, const void *payload, size_t payloadLen,
@@ -1094,6 +1105,16 @@ int MT7902Mcu::uniUpdateSta(const StaUpdateParams &p) {
             putLe16(&wvht->len, sizeof(WtblVhtTlv));
             wvht->ldpc = 1;
             wvht->vht = 1;
+            wtblTlvs++;
+        }
+
+        if (!p.broadcast && p.ht) {
+            auto *smps = reinterpret_cast<WtblSmpsTlv *>(buf + pos);
+            pos += sizeof(WtblSmpsTlv);
+            wtblContainerLen += sizeof(WtblSmpsTlv);
+            putLe16(&smps->tag, WTBL_SMPS);
+            putLe16(&smps->len, sizeof(WtblSmpsTlv));
+            smps->smps = 0; // SMPS off (full antenna/rate throughput)
             wtblTlvs++;
         }
     }

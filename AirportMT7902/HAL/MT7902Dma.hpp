@@ -71,22 +71,29 @@ public:
     void configurePrefetch();
 
     // TX operations: submit a single linear buffer (copied into ring DMA buffer) or 2-segment TXWI+payload
-    int txSubmitCopy(DmaQueueId qid, const void *data, size_t len);
+    int txSubmitCopy(DmaQueueId qid, const void *data, size_t len, bool kick = true);
     int txSubmitDual(DmaQueueId qid, const void *hdr, size_t hdrLen,
                      uint64_t payloadPhys, size_t payloadLen, void *cookie);
+    void txKick(DmaQueueId qid);
     uint32_t txCleanup(DmaQueueId qid, void (*onFree)(void *cookie, void *ctx) = nullptr, void *ctx = nullptr);
     uint16_t txQueued(DmaQueueId qid) const {
         return (qid < kDmaQueueCount && mRings[qid].initialized) ? mRings[qid].queued : 0;
     }
 
-    // RX operations: refill ring descriptors and dequeue completed packets
+    // RX operations: refill ring descriptors and dequeue/zero-copy peek completed packets
     int rxRefill(DmaQueueId qid);
-    int rxDequeue(DmaQueueId qid, uint8_t *outBuf, size_t outCap, size_t &outLen);
+    int rxDequeue(DmaQueueId qid, uint8_t *outBuf, size_t outCap, size_t &outLen,
+                  bool autoRefill = true);
+    int rxPeek(DmaQueueId qid, const uint8_t *&outData, size_t &outLen, bool &wasDropped);
+    void rxConsume(DmaQueueId qid);
 
-    // Interrupt handling
+    // Interrupt handling (NAPI-style split ack/unmask + legacy combined helper)
     void setIrqMask(uint32_t clearBits, uint32_t setBits);
     void disableInterrupts();
     void enableInterrupts();
+    IrqStatus ackInterrupt();
+    void clearPendingDataIrqs();
+    void unmaskInterrupts();
     IrqStatus handleInterrupt();
 
     bool needsReinit() const;

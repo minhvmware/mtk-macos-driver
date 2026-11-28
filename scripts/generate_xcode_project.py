@@ -55,6 +55,7 @@ WIFI_HEADERS = [
     "AirportMT7902/HAL/MT7902Device.hpp",
     "AirportMT7902/Net80211/MT7902Channels.hpp",
     "AirportMT7902/Net80211/MT7902BeaconParser.hpp",
+    "AirportMT7902/Net80211/MT7902RxReorder.hpp",
     "AirportMT7902/Net80211/MT7902Wpa2.hpp",
     "AirportMT7902/Net80211/MT7902Sta.hpp",
     "AirportMT7902/Native/MT7902IOKitBus.hpp",
