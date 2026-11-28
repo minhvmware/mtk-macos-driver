@@ -390,6 +390,7 @@ uint32_t MT7902Device::drainRxData() {
     if (mDrainingRxData)
         return 0;
     mDrainingRxData = true;
+    mDma.syncRxDescForCpu(kRxData);
     uint32_t processed = 0;
     uint32_t sinceRefill = 0;
     for (int i = 0; i < 512; ++i) {
@@ -400,7 +401,7 @@ uint32_t MT7902Device::drainRxData() {
         if (r != kOk) {
             if (dropped) {
                 sinceRefill++;
-                if (sinceRefill >= 32) {
+                if (sinceRefill >= 64) {
                     mDma.rxRefill(kRxData);
                     sinceRefill = 0;
                 }
@@ -412,7 +413,7 @@ uint32_t MT7902Device::drainRxData() {
         mDma.rxConsume(kRxData);
         processed++;
         sinceRefill++;
-        if (sinceRefill >= 32) {
+        if (sinceRefill >= 64) {
             mDma.rxRefill(kRxData);
             sinceRefill = 0;
         }
@@ -439,7 +440,7 @@ void MT7902Device::serviceInterrupt() {
 
     // NAPI-style drain loop while WFDMA0 host IRQs remain masked:
     // drains RX data, RX MCU/TX-free notifications, and TX ring completions before unmasking.
-    for (int pass = 0; pass < 4; ++pass) {
+    for (int pass = 0; pass < 8; ++pass) {
         if (st.txDone || pass == 0) {
             mDma.txCleanup(kTxMcuWm);
             mDma.txCleanup(kTxFwdl);
@@ -458,6 +459,11 @@ void MT7902Device::serviceInterrupt() {
     mDma.unmaskInterrupts();
 }
 
+void MT7902Device::reclaimTxResources() {
+    mDma.txCleanup(kTxBand0);
+    (void)mMcu.drainRxEvents();
+}
+
 int MT7902Device::sendEthernetFrame(const uint8_t *frame, size_t len, uint16_t wcid,
                                     bool qos, bool protect, bool hwAmsdu, bool kick) {
     if (!mRadioRunning)
@@ -470,7 +476,14 @@ int MT7902Device::sendEthernetFrame(const uint8_t *frame, size_t len, uint16_t w
     opts.hwAmsdu = hwAmsdu;
     opts.ac = 2; // Best Effort
     opts.tid = 0;
-    return mMac.transmitFrame(frame, len, opts, kick);
+    int err = mMac.transmitFrame(frame, len, opts, kick);
+    if (err == kErrNoSpace) {
+        // Reclaim finished TX descriptors & RX Ring 0 TX_FREE tokens before dropping
+        mDma.txKick(kTxBand0);
+        reclaimTxResources();
+        err = mMac.transmitFrame(frame, len, opts, kick);
+    }
+    return err;
 }
 
 int MT7902Device::send80211Frame(const uint8_t *frame, size_t len, uint16_t wcid,

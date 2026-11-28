@@ -96,6 +96,9 @@ public:
     bool releaseToken(uint16_t tokenId, TxTokenSlot &outSlot);
     void releaseAllTokens(void (*onFree)(void *osPacket, void *ctx) = nullptr, void *ctx = nullptr);
     uint32_t activeTokens() const { return mActiveTokens; }
+    uint32_t freeTokens() const {
+        return (mActiveTokens < MT7902_TOKEN_SIZE) ? (MT7902_TOKEN_SIZE - mActiveTokens) : 0;
+    }
 
     // Wire-format TXWI (32B TXD + 32B HW TXP) builders (pure static, unit-testable)
     static void buildTxwi(Mt7902Txwi &out, const uint8_t *frame, size_t frameLen,

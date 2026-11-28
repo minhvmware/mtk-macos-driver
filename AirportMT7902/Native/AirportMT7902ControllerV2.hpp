@@ -143,6 +143,8 @@ private:
     uint32_t mPowerState = 1;
     bool mDriverAvailableReported = false;
     bool mInRxBatch = false;
+    bool mInOutputStart = false;
+    bool mTxThrottled = false;
     bool mReorderTimerArmed = false;
     uint32_t mPendingInputPackets = 0;
     uint8_t mTxLinear[2048] = {};

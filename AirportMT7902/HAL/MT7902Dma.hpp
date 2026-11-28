@@ -79,9 +79,16 @@ public:
     uint16_t txQueued(DmaQueueId qid) const {
         return (qid < kDmaQueueCount && mRings[qid].initialized) ? mRings[qid].queued : 0;
     }
+    uint16_t txFreeCount(DmaQueueId qid) const {
+        if (qid >= kDmaQueueCount || !mRings[qid].initialized || mRings[qid].ndesc <= 1)
+            return 0;
+        uint16_t cap = static_cast<uint16_t>(mRings[qid].ndesc - 1U);
+        return (mRings[qid].queued < cap) ? static_cast<uint16_t>(cap - mRings[qid].queued) : 0;
+    }
 
     // RX operations: refill ring descriptors and dequeue/zero-copy peek completed packets
     int rxRefill(DmaQueueId qid);
+    void syncRxDescForCpu(DmaQueueId qid);
     int rxDequeue(DmaQueueId qid, uint8_t *outBuf, size_t outCap, size_t &outLen,
                   bool autoRefill = true);
     int rxPeek(DmaQueueId qid, const uint8_t *&outData, size_t &outLen, bool &wasDropped);

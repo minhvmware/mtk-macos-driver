@@ -432,6 +432,12 @@ int MT7902Dma::rxDequeue(DmaQueueId qid, uint8_t *outBuf, size_t outCap, size_t 
     return (drop || outLen == 0) ? kErrAgain : kOk;
 }
 
+void MT7902Dma::syncRxDescForCpu(DmaQueueId qid) {
+    if (qid >= kDmaQueueCount || !mRings[qid].initialized)
+        return;
+    mBus.syncDmaForCpu(mRings[qid].descBuf);
+}
+
 int MT7902Dma::rxPeek(DmaQueueId qid, const uint8_t *&outData, size_t &outLen, bool &wasDropped) {
     outData = nullptr;
     outLen = 0;
@@ -442,9 +448,8 @@ int MT7902Dma::rxPeek(DmaQueueId qid, const uint8_t *&outData, size_t &outLen, b
     if (!r.initialized || !r.isRx || r.queued == 0)
         return kErrAgain;
 
-    mBus.syncDmaForCpu(r.descBuf);
-    Mt76Desc &desc = r.descs()[r.tail];
-    uint32_t ctrl = desc.ctrl;
+    const volatile uint32_t *ctrlPtr = &r.descs()[r.tail].ctrl;
+    uint32_t ctrl = *ctrlPtr;
     if (!(ctrl & MT_DMA_CTL_DMA_DONE))
         return kErrAgain;
 

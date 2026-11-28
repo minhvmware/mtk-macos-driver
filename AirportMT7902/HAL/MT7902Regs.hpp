@@ -257,7 +257,7 @@ static constexpr uint8_t MT7902_TXQ_FWDL = 16;
 static constexpr uint8_t MT7902_RXQ_MCU_WM = 0;  // Shared for MCU events & TX-free notifications
 static constexpr uint8_t MT7902_RXQ_DATA = 2;    // RX Ring 2 (0xd4520)
 
-static constexpr uint16_t MT7902_TX_RING_SIZE = 512;      // HW supports up to 2048
+static constexpr uint16_t MT7902_TX_RING_SIZE = 1024;     // HW supports up to 2048
 static constexpr uint16_t MT7902_TX_MCU_RING_SIZE = 256;
 static constexpr uint16_t MT7902_TX_FWDL_RING_SIZE = 128;
 static constexpr uint16_t MT7902_RX_MCU_RING_SIZE = 512;   // MT7902 quirk: 512 (MT7921 uses 8)

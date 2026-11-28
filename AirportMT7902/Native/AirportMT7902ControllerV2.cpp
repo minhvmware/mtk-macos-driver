@@ -448,12 +448,12 @@ bool AirportMT7902::configureInterface(IONetworkInterface *netif) {
 #ifdef __PRIVATE_SPI__
 #ifdef AIRPORT_WCL
     if (netif->configureOutputPullModel(
-            512, kIONetworkWorkLoopSynchronous, 0,
+            1024, kIONetworkWorkLoopSynchronous, 0,
             IOEthernetInterface::kOutputPacketSchedulingModelNormal, 0) != kIOReturnSuccess)
         return false;
 #else
     netif->configureOutputPullModel(
-        512, 0, 0, IOEthernetInterface::kOutputPacketSchedulingModelNormal, 0);
+        1024, 0, 0, IOEthernetInterface::kOutputPacketSchedulingModelNormal, 0);
 #endif
 #endif
     return true;
@@ -521,9 +521,25 @@ UInt32 AirportMT7902::outputPacket(mbuf_t m, void *param) {
 #ifdef __PRIVATE_SPI__
 IOReturn AirportMT7902::outputStart(IONetworkInterface *interface, IOOptionBits options) {
     (void)options;
-    if (!interface)
+    if (!interface || !mDevice || !mSta)
         return kIOReturnBadArgument;
+    if (mInOutputStart)
+        return kIOReturnSuccess;
+    mInOutputStart = true;
+
     for (int batch = 0; batch < 16; ++batch) {
+        if (mDevice->dma().txFreeCount(mt7902::kTxBand0) < 64 ||
+            mDevice->mac().freeTokens() < 64) {
+            mDevice->reclaimTxResources();
+            if (mDevice->dma().txFreeCount(mt7902::kTxBand0) < 32 ||
+                mDevice->mac().freeTokens() < 32) {
+                // Leave remaining packets safely in XNU pull queue until TX_FREE frees tokens
+                mTxThrottled = true;
+                break;
+            }
+        }
+        mTxThrottled = false;
+
         mbuf_t m = nullptr;
         if (interface->dequeueOutputPackets(32, &m) != kIOReturnSuccess || !m)
             break;
@@ -535,9 +551,11 @@ IOReturn AirportMT7902::outputStart(IONetworkInterface *interface, IOOptionBits 
                 submittedAny = true;
             m = next;
         }
-        if (submittedAny && mSta)
+        if (submittedAny)
             mSta->flushTx();
     }
+
+    mInOutputStart = false;
     return kIOReturnSuccess;
 }
 #endif
@@ -754,6 +772,14 @@ void AirportMT7902::onRxBatchComplete() {
         mReorderTimer->setTimeoutMS(40);
         mReorderTimerArmed = true;
     }
+#ifdef __PRIVATE_SPI__
+    if (mTxThrottled && !mInOutputStart && mBsdIf && mDevice &&
+        mDevice->dma().txFreeCount(mt7902::kTxBand0) >= 64 &&
+        mDevice->mac().freeTokens() >= 64) {
+        mTxThrottled = false;
+        outputStart(mBsdIf, 0);
+    }
+#endif
 }
 
 void AirportMT7902::onDataFrameReceived(const uint8_t *ethFrame, size_t len) {
@@ -804,6 +830,7 @@ void AirportMT7902::onLinkStateChanged(bool up) {
         if (mBsdIf)
             mBsdIf->setLinkState(kIO80211NetworkLinkUp);
     } else {
+        mTxThrottled = false;
         if (mReorderTimer && mReorderTimerArmed) {
             mReorderTimer->cancelTimeout();
             mReorderTimerArmed = false;

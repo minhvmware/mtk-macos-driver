@@ -1206,6 +1206,9 @@ static void testRxReorderAmsduTxAddbaAndBatching(MockMT7902AsicBus &bus, MT7902D
     printf("[11/11] Testing RX A-MPDU reorder (OOO, A-MSDU, wrap, BAR, timeout), TX ADDBA & DMA batching...\n");
 
     TEST_CHECK(dev.dma().ring(kRxData).ndesc == 1024, "Expected 1024-entry RX data ring");
+    TEST_CHECK(dev.dma().ring(kTxBand0).ndesc == 1024, "Expected 1024-entry TX data ring");
+    TEST_CHECK(dev.dma().txFreeCount(kTxBand0) == 1023 && dev.mac().freeTokens() == MT7902_TOKEN_SIZE,
+               "Initial TX ring/token free counts mismatch");
 
     MT7902Sta sta(dev);
     MockStaListener listener;

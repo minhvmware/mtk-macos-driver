@@ -56,6 +56,7 @@ public:
     int sendEthernetFrame(const uint8_t *frame, size_t len, uint16_t wcid, bool qos, bool protect,
                           bool hwAmsdu = false, bool kick = true);
     void flushTxData() { mDma.txKick(kTxBand0); }
+    void reclaimTxResources();
     int send80211Frame(const uint8_t *frame, size_t len, uint16_t wcid, bool protect,
                        bool noAck = false, bool fiveGhz = false);
 
