@@ -217,6 +217,9 @@ void MT7902Mcu::processRxRing0Packet(const uint8_t *pkt, size_t len) {
         memcpy(mRespStorage, pkt, copyLen);
         mRespSize = copyLen;
         mRespReceived = true;
+    } else if (mWaitingResp) {
+        MTK_LOG("MCU rx mismatch while waiting seq=%u cmd=0x%08x: got eid=0x%02x ext=0x%02x seq=%u opt=0x%02x len=%zu",
+                mWaitSeq, mWaitCmd, rxd->eid, rxd->ext_eid, rxd->seq, rxd->option, len);
     }
 }
 

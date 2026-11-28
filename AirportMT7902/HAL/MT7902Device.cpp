@@ -149,20 +149,29 @@ int MT7902Device::probeAndInit() {
                 mCap.has2Ghz, mCap.has5Ghz, mCap.has6Ghz, mCap.nss, mCap.supportsHe);
 
         // Step 8: Configure EEPROM EFUSE mode + MAC hardware registers.
-        // If CONNSYS Bluetooth WMT firmware download collided during EFUSE_BUFFER_MODE,
-        // retry the full WFSYS init sequence cleanly instead of leaving the Wi-Fi MCU wedged.
-        err = mMcu.setEepromEfuseMode();
-        if (err != kOk) {
-            MTK_ERR("setEepromEfuseMode failed (%d), retrying init", err);
-            mDma.cleanup();
-            continue;
+        // On some MT7902 cold/warm boots where CONNSYS Bluetooth already holds EFUSE
+        // arbitration, EFUSE_BUFFER_MODE (0x21ed) does not emit an EXT_ACK even though
+        // EFUSE is already active (verified by getNicCapability() above). Verify MCU
+        // liveness via setRtsThreshold() (matching mt7921_mac_init) before retrying.
+        int efuseErr = mMcu.setEepromEfuseMode();
+        if (efuseErr != kOk) {
+            MTK_LOG("setEepromEfuseMode returned %d; verifying MCU liveness via RTS threshold",
+                    efuseErr);
         }
         err = mMac.initHardware();
         if (err != kOk) {
             mDma.cleanup();
             continue;
         }
-        (void)mMcu.setRtsThreshold(0x92b, 0);
+        err = mMcu.setRtsThreshold(0x92b, 0);
+        if (err != kOk) {
+            MTK_ERR("MCU unresponsive after EFUSE/MAC init (%d), retrying init", err);
+            mDma.cleanup();
+            continue;
+        }
+        if (efuseErr != kOk) {
+            MTK_LOG("MT7902 MCU responsive (EFUSE already active via CONNSYS)");
+        }
 
         // MT7902 hardware quirk (init.c:307): keep deep sleep disabled by default for stability
         (void)mMcu.setDeepSleep(false);
